@@ -16,8 +16,8 @@ DEVICE = config.DEVICE
 def split_text_into_chunks(pdf_path):
     pages_content = extract_text_without_headers_footers(pdf_path, skip_pages={0})
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=128,
-        chunk_overlap=30,
+        chunk_size=config.CHUNK_SIZE,
+        chunk_overlap=60,
         length_function=len
     )
 
