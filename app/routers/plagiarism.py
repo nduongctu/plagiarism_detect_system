@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 import os
-from plagiarism_check import plagiarism_check
-from process_to_qdrant import save_uploaded_pdf
+from app.services.plagiarism_check import plagiarism_check
+from app.services.save_to_Qdrant import save_uploaded_pdf
 router = APIRouter()
 
 UPLOAD_DIR = "uploads"

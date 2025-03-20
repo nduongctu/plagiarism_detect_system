@@ -1,7 +1,7 @@
 import re
 import fitz
-from pyvi.ViTokenizer import tokenize
-from config import MIN_CHUNK_LENGTH
+from app.config.settings import MIN_CHUNK_LENGTH
+
 
 def clean_text(text):
     text = text.lower()

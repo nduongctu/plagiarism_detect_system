@@ -1,5 +1,4 @@
 qdrant-client
-langchain-huggingface
 langchain
 pymupdf
 numpy

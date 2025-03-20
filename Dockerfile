@@ -1,5 +1,7 @@
 FROM python:3.10-slim
 
+WORKDIR /app
+
 RUN apt-get update
 
 RUN pip install typing-extensions==4.10.0
@@ -12,4 +14,4 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

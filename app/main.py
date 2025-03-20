@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import uploads, process
+from app.routers import uploads, plagiarism
 
 app = FastAPI()
 
@@ -14,7 +14,7 @@ app.add_middleware(
 )
 
 app.include_router(uploads.router, prefix="/files", tags=["files"])
-app.include_router(process.router, prefix="/process", tags=["process"])
+app.include_router(plagiarism.router, prefix="/process", tags=["process"])
 
 if __name__ == "__main__":
     import uvicorn

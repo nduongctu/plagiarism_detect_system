@@ -1,6 +1,6 @@
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
-from config import QDRANT_HOST, COLLECTION_NAME, VECTOR_SIZE, DISTANCE_METRIC
+from app.config.settings import QDRANT_HOST, COLLECTION_NAME, VECTOR_SIZE, DISTANCE_METRIC
 
 DISTANCE_MAPPING = {
     "cosine": Distance.COSINE,

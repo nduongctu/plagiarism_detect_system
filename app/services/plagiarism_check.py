@@ -1,22 +1,18 @@
-import os
-import numpy as np
 import torch
-import torch.nn.functional as F
-import config
-from sentence_transformers import SentenceTransformer
+from app.config import settings
 from qdrant_client import QdrantClient, models
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from process_file import clean_text, extract_text_without_headers_footers, process_chunks
-from process_to_qdrant import embedding_model
+from app.utils.file_utils import clean_text, extract_text_without_headers_footers, process_chunks
+from app.services.save_to_Qdrant import embedding_model
 
-DEVICE = config.DEVICE
+DEVICE = settings.DEVICE
 
 
 def split_text_into_chunks(pdf_path):
     pages_content = extract_text_without_headers_footers(pdf_path, skip_pages={0})
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=config.CHUNK_SIZE,
+        chunk_size=settings.CHUNK_SIZE,
         chunk_overlap=60,
         length_function=len
     )
@@ -39,7 +35,7 @@ def split_text_into_chunks(pdf_path):
                     "start": start_idx,
                     "end": end_idx
                 })
-                start_idx = end_idx - config.CHUNK_OVERLAP
+                start_idx = (end_idx - settings.CHUNK_OVERLAP)
 
             processed_chunks, processed_metadata = process_chunks(raw_chunks, page_metadata)
 
@@ -52,14 +48,14 @@ def split_text_into_chunks(pdf_path):
 def embed_texts(texts):
     model = embedding_model
     embeddings = []
-    for i in range(0, len(texts), config.BATCH_SIZE):
-        batch = texts[i:i + config.BATCH_SIZE]
+    for i in range(0, len(texts), settings.BATCH_SIZE):
+        batch = texts[i:i + settings.BATCH_SIZE]
         batch_embeddings = model.encode(batch, convert_to_tensor=True, device=DEVICE)
         embeddings.append(batch_embeddings)
     return torch.cat(embeddings, dim=0)
 
 
-def compare_with_qdrant(query_chunks, query_embeddings, client, threshold=config.SIMILARITY_THRESHOLD):
+def compare_with_qdrant(query_chunks, query_embeddings, client, threshold=settings.SIMILARITY_THRESHOLD):
     search_queries = [
         models.QueryRequest(
             query=query_emb.tolist(),
@@ -70,7 +66,7 @@ def compare_with_qdrant(query_chunks, query_embeddings, client, threshold=config
     ]
 
     search_results = client.query_batch_points(
-        collection_name=config.COLLECTION_NAME,
+        collection_name=settings.COLLECTION_NAME,
         requests=search_queries
     )
 
@@ -129,7 +125,7 @@ def plagiarism_check(pdf_path):
     query_embeddings = embed_texts(query_texts)
 
     print("\nĐang kiểm tra với dữ liệu trong Qdrant...")
-    client = QdrantClient(config.QDRANT_HOST)
+    client = QdrantClient(settings.QDRANT_HOST)
     matches = compare_with_qdrant(query_chunks, query_embeddings, client)
 
     result = {

@@ -2,12 +2,14 @@ from sentence_transformers import SentenceTransformer
 import logging
 import os
 
-MODEL_PATH = "models"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+MODEL_PATH = os.path.join(BASE_DIR, "model_embedding")
 
 
 def load_and_save_model():
     if not os.path.exists(MODEL_PATH):
-        logging.info(f"Đang tải mô hình từ {MODEL_PATH}...")
+        logging.info(f"Đang tải mô hình từ Hugging Face...")
+        os.makedirs(MODEL_PATH, exist_ok=True)
         # Tải mô hình từ Hugging Face
         model = SentenceTransformer("AITeamVN/Vietnamese_Embedding")
         # Lưu mô hình vào thư mục cục bộ

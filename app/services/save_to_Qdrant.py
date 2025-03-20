@@ -1,15 +1,15 @@
 import os
-import numpy as np
 from sentence_transformers import SentenceTransformer
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from qdrant_client.models import PointStruct
-from config import PDF_FOLDER_PATH, EMBEDDING_MODEL, DEVICE, CHUNK_SIZE, COLLECTION_NAME, \
+from app.config.settings import PDF_FOLDER_PATH, DEVICE, CHUNK_SIZE, COLLECTION_NAME, \
     CHUNK_OVERLAP
-from qdrant_utils import client
-from process_file import clean_text, extract_text_without_headers_footers, process_chunks
+from app.utils.Qdrant_utils import client
+from app.utils.file_utils import clean_text, extract_text_without_headers_footers, process_chunks
+import os
 
-MODEL_PATH = "models"
-
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+MODEL_PATH = os.path.join(BASE_DIR, "model_embedding")
 embedding_model = SentenceTransformer(MODEL_PATH, device=DEVICE)
 
 
