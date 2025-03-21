@@ -1,3 +1,4 @@
+import time
 import torch
 from app.config import settings
 from qdrant_client import QdrantClient, models
@@ -11,10 +12,12 @@ DEVICE = settings.DEVICE
 
 
 def split_text_into_chunks(pdf_bytes: BytesIO):
+    start_time = time.time()
+
     pages_content = extract_text_without_headers_footers(pdf_bytes, skip_pages={0})
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.CHUNK_SIZE,
-        chunk_overlap=60,
+        chunk_overlap=settings.CHUNK_OVERLAP,
         length_function=len
     )
 
@@ -43,24 +46,44 @@ def split_text_into_chunks(pdf_bytes: BytesIO):
             for chunk, meta in zip(processed_chunks, processed_metadata):
                 chunks.append(Document(page_content=chunk, metadata=meta))
 
+    end_time = time.time()
+    print(f"Thời gian chia văn bản thành {len(chunks)} đoạn: {end_time - start_time:.4f} s")
+
     return chunks
 
 
 def embed_texts(texts):
     model = embedding_model
     embeddings = []
-    for i in range(0, len(texts), settings.BATCH_SIZE):
-        batch = texts[i:i + settings.BATCH_SIZE]
-        batch_embeddings = model.encode(batch, convert_to_tensor=True, device=DEVICE)
-        embeddings.append(batch_embeddings)
+
+    start_total = time.time()
+
+    with torch.no_grad():
+        for i in range(0, len(texts), settings.BATCH_SIZE):
+            batch = texts[i:i + settings.BATCH_SIZE]
+
+            start_batch = time.time()
+            batch_embeddings = model.encode(batch, convert_to_tensor=True, device=DEVICE)
+            end_batch = time.time()
+
+            print(
+                f"Embedding batch {i // settings.BATCH_SIZE + 1}: {len(batch)} texts -> {end_batch - start_batch:.4f} s")
+
+            embeddings.append(batch_embeddings)
+
+    end_total = time.time()
+    print(f"Tổng thời gian trích xuất embeddings: {end_total - start_total:.4f} s")
+
     return torch.cat(embeddings, dim=0)
 
 
 def compare_with_qdrant(query_chunks, query_embeddings, client, threshold=settings.SIMILARITY_THRESHOLD):
+    start_time = time.time()
+
     search_queries = [
         models.QueryRequest(
             query=query_emb.tolist(),
-            limit=3,
+            limit=1,
             with_payload=True
         )
         for query_emb in query_embeddings
@@ -71,44 +94,31 @@ def compare_with_qdrant(query_chunks, query_embeddings, client, threshold=settin
         requests=search_queries
     )
 
+    end_time = time.time()
+    print(f"Thời gian truy vấn Qdrant: {end_time - start_time:.4f} s")
+
     matches = []
 
     for i, query_response in enumerate(search_results):
-        if not hasattr(query_response, 'points'):
+        if not hasattr(query_response, 'points') or not query_response.points:
             continue
 
-        for scored_point in query_response.points:
-            try:
-                # Access score attribute directly
-                if hasattr(scored_point, 'score'):
-                    score = scored_point.score
-                else:
-                    continue
+        scored_point = query_response.points[0]
+        score = getattr(scored_point, "score", 0)
+        payload = getattr(scored_point, "payload", {})
 
-                # Access payload attribute directly
-                if hasattr(scored_point, 'payload'):
-                    payload = scored_point.payload
-                else:
-                    continue
+        if score >= threshold:
+            matches.append({
+                "query_text": query_chunks[i].page_content,
+                "matched_text": payload.get("content", "N/A"),
+                "similarity": int(round(float(score) * 100)),
+                "source_file": payload.get("source", "unknown"),
+                "source_page": payload.get("page", "?"),
+                "start": payload.get("start", 0),
+                "end": payload.get("end", 0)
+            })
 
-                if score >= threshold:
-                    matches.append({
-                        "query_text": query_chunks[i].page_content,
-                        "matched_text": payload.get("content", "N/A") if isinstance(payload, dict) else "N/A",
-                        "similarity": int(round(float(score) * 100)),
-                        "source_file": payload.get("source", "unknown") if isinstance(payload, dict) else "unknown",
-                        "source_page": payload.get("page", "?") if isinstance(payload, dict) else "?",
-                        "start": payload.get("start", 0) if isinstance(payload, dict) else 0,
-                        "end": payload.get("end", 0) if isinstance(payload, dict) else 0
-                    })
-            except Exception as e:
-                print(f"Error processing hit: {e}")
-                continue
-
-    if not matches:
-        return []
-
-    return sorted(matches, key=lambda x: x["similarity"], reverse=True)
+    return matches
 
 
 def format_duplication_rate(rate):
@@ -116,18 +126,32 @@ def format_duplication_rate(rate):
 
 
 def plagiarism_check(pdf_bytes: BytesIO):
+    print("\nBắt đầu kiểm tra đạo văn...")
+
+    start_total = time.time()
+
     print("\nĐang tải và xử lý file PDF...")
+    start_step = time.time()
     query_chunks = split_text_into_chunks(pdf_bytes)
+    print(f"-> Thời gian xử lý file PDF: {time.time() - start_step:.4f} s")
+
     total_chunks = len(query_chunks)
     print(f"Tổng số đoạn văn đã chia: {total_chunks}")
 
     print("\nĐang trích xuất embeddings...")
+    start_step = time.time()
     query_texts = [chunk.page_content for chunk in query_chunks]
     query_embeddings = embed_texts(query_texts)
+    print(f"-> Thời gian trích xuất embeddings: {time.time() - start_step:.4f} s")
 
     print("\nĐang kiểm tra với dữ liệu trong Qdrant...")
+    start_step = time.time()
     client = QdrantClient(settings.QDRANT_HOST)
     matches = compare_with_qdrant(query_chunks, query_embeddings, client)
+    print(f"-> Thời gian kiểm tra Qdrant: {time.time() - start_step:.4f} s")
+
+    end_total = time.time()
+    print(f"\nTổng thời gian kiểm tra đạo văn: {end_total - start_total:.4f} s")
 
     result = {
         "duplication_rate": 0,
@@ -154,6 +178,3 @@ def plagiarism_check(pdf_bytes: BytesIO):
         result["message"] = "Không tìm thấy đoạn trùng lặp."
 
     return result
-
-# result = plagiarism_check("uploads/lv_nguyendaiduong.pdf")
-# print(result)

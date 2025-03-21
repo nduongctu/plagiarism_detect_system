@@ -9,7 +9,7 @@ from app.utils.Qdrant_utils import client
 from app.utils.file_utils import clean_text, extract_text_without_headers_footers, process_chunks
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-MODEL_PATH = os.path.join(BASE_DIR, "model_embedding")
+MODEL_PATH = os.path.join(BASE_DIR, "models/DEk21_hcmute_embedding")
 embedding_model = SentenceTransformer(MODEL_PATH, device=DEVICE)
 
 

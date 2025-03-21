@@ -3,7 +3,7 @@ import logging
 import os
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-MODEL_PATH = os.path.join(BASE_DIR, "model_embedding")
+MODEL_PATH = os.path.join(BASE_DIR, "models/DEk21_hcmute_embedding")
 
 
 def load_and_save_model():

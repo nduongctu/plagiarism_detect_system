@@ -4,10 +4,10 @@ QDRANT_HOST = "http://qdrant:6333"
 COLLECTION_NAME = "plagiarism_check"
 
 PDF_FOLDER_PATH = "../../data/pdf"
-VECTOR_SIZE = 1024
+VECTOR_SIZE = 768
 DISTANCE_METRIC = "cosine"
 
-EMBEDDING_MODEL = "AITeamVN/Vietnamese_Embedding"
+EMBEDDING_MODEL = "huyydangg/DEk21_hcmute_embedding"
 
 PDF_DIR = "../../data/pdf"
 
