@@ -1,4 +1,5 @@
 import os
+import io
 from sentence_transformers import SentenceTransformer
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from qdrant_client.models import PointStruct
@@ -6,18 +7,16 @@ from app.config.settings import PDF_FOLDER_PATH, DEVICE, CHUNK_SIZE, COLLECTION_
     CHUNK_OVERLAP
 from app.utils.Qdrant_utils import client
 from app.utils.file_utils import clean_text, extract_text_without_headers_footers, process_chunks
-import os
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MODEL_PATH = os.path.join(BASE_DIR, "model_embedding")
 embedding_model = SentenceTransformer(MODEL_PATH, device=DEVICE)
 
 
-def save_uploaded_pdf(pdf_path):
-    filename = os.path.basename(pdf_path)
+def save_uploaded_pdf(pdf_stream: io.BytesIO, filename: str):
     print(f"Đang xử lý file: {filename}")
 
-    pages_content = extract_text_without_headers_footers(pdf_path)
+    pages_content = extract_text_without_headers_footers(pdf_stream)
     documents = []
 
     text_splitter = RecursiveCharacterTextSplitter(
@@ -31,7 +30,6 @@ def save_uploaded_pdf(pdf_path):
         if cleaned_text:
             raw_chunks = text_splitter.split_text(cleaned_text)
 
-            # Tạo metadata cho từng chunk
             metadata_list = []
             start_pos = 0
             for chunk in raw_chunks:
@@ -39,19 +37,17 @@ def save_uploaded_pdf(pdf_path):
                 metadata_list.append({"start": start_pos, "end": end_pos, "page": page_data["page"]})
                 start_pos = end_pos
 
-            # Xử lý gộp những đoạn quá ngắn
             processed_chunks, processed_metadata = process_chunks(raw_chunks, metadata_list)
 
-            # Encode tất cả chunks cùng lúc để tối ưu
             if processed_chunks:
                 chunk_vectors = embedding_model.encode(processed_chunks)
 
                 for chunk, vector, metadata in zip(processed_chunks, chunk_vectors, processed_metadata):
-                    if vector is not None:  # Chỉ lưu những vector hợp lệ
+                    if vector is not None:
                         doc_id = hash(chunk) % (10 ** 9)
                         documents.append(PointStruct(
                             id=doc_id,
-                            vector=vector.tolist(),  # Chắc chắn lưu dưới dạng list
+                            vector=vector.tolist(),
                             payload={
                                 "source": filename,
                                 "page": metadata["page"],

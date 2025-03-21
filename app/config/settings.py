@@ -12,7 +12,7 @@ EMBEDDING_MODEL = "AITeamVN/Vietnamese_Embedding"
 PDF_DIR = "../../data/pdf"
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 
 CHUNK_SIZE = 128
 CHUNK_OVERLAP = 0

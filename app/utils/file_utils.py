@@ -1,6 +1,7 @@
 import re
 import fitz
 from app.config.settings import MIN_CHUNK_LENGTH
+from io import BytesIO
 
 
 def clean_text(text):
@@ -16,11 +17,11 @@ def clean_text(text):
     return text
 
 
-def extract_text_without_headers_footers(pdf_path, skip_pages=None):
+def extract_text_without_headers_footers(pdf_bytes: BytesIO, skip_pages=None):
     if skip_pages is None:
         skip_pages = set()
 
-    doc = fitz.open(pdf_path)
+    doc = fitz.open("pdf", pdf_bytes.getvalue())
     pages_text = []
     stop_page = None
 
@@ -29,14 +30,14 @@ def extract_text_without_headers_footers(pdf_path, skip_pages=None):
         page_text = page.get_text("text").strip()
 
         if re.search(r"tài liệu tham khảo", page_text, flags=re.IGNORECASE):
-            stop_page = page_num + 1  # Ghi nhận trang chứa "Tài liệu tham khảo"
+            stop_page = page_num + 1
             print(f"Dừng xử lý tại trang {stop_page} do phát hiện 'Tài liệu tham khảo'")
-            break  # Dừng lại ngay khi tìm thấy
+            break
 
     for page_num, page in enumerate(doc):
         page_index = page_num + 1
         if page_index in skip_pages:
-            continue  # Bỏ qua trang được chỉ định
+            continue
 
         # Lấy kích thước trang
         page_rect = page.rect
@@ -80,7 +81,6 @@ def process_chunks(chunks, metadata_list, min_chunk_length=MIN_CHUNK_LENGTH):
             processed_chunks[-1] += " " + chunk
             processed_metadata[-1]["end"] = metadata["end"]
         else:
-            # Thêm mới vào danh sách
             processed_chunks.append(chunk)
             processed_metadata.append(metadata)
 

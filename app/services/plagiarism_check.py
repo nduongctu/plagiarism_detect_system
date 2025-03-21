@@ -5,12 +5,13 @@ from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from app.utils.file_utils import clean_text, extract_text_without_headers_footers, process_chunks
 from app.services.save_to_Qdrant import embedding_model
+from io import BytesIO
 
 DEVICE = settings.DEVICE
 
 
-def split_text_into_chunks(pdf_path):
-    pages_content = extract_text_without_headers_footers(pdf_path, skip_pages={0})
+def split_text_into_chunks(pdf_bytes: BytesIO):
+    pages_content = extract_text_without_headers_footers(pdf_bytes, skip_pages={0})
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.CHUNK_SIZE,
         chunk_overlap=60,
@@ -30,7 +31,7 @@ def split_text_into_chunks(pdf_path):
             for chunk in raw_chunks:
                 end_idx = start_idx + len(chunk)
                 page_metadata.append({
-                    "source": pdf_path,
+                    "source": "uploaded_file",
                     "page": page["page"],
                     "start": start_idx,
                     "end": end_idx
@@ -114,9 +115,9 @@ def format_duplication_rate(rate):
     return int(rate) if rate.is_integer() else round(rate, 2)
 
 
-def plagiarism_check(pdf_path):
+def plagiarism_check(pdf_bytes: BytesIO):
     print("\nĐang tải và xử lý file PDF...")
-    query_chunks = split_text_into_chunks(pdf_path)
+    query_chunks = split_text_into_chunks(pdf_bytes)
     total_chunks = len(query_chunks)
     print(f"Tổng số đoạn văn đã chia: {total_chunks}")
 
