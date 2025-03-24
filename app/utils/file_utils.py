@@ -72,9 +72,12 @@ def extract_text_without_headers_footers(pdf_bytes: BytesIO, skip_pages=None):
     return pages_text
 
 
-def process_chunks(chunks, metadata_list, min_chunk_length=MIN_CHUNK_LENGTH):
+def process_chunks(chunks, metadata_list, min_chunk_length=None):
     processed_chunks = []
     processed_metadata = []
+
+    if min_chunk_length is None:
+        min_chunk_length = MIN_CHUNK_LENGTH
 
     for chunk, metadata in zip(chunks, metadata_list):
         if processed_chunks and len(chunk) < min_chunk_length:

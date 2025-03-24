@@ -11,13 +11,13 @@ from io import BytesIO
 DEVICE = settings.DEVICE
 
 
-def split_text_into_chunks(pdf_bytes: BytesIO):
+def split_text_into_chunks(pdf_bytes: BytesIO, chunk_size: int, chunk_overlap: int, min_chunk_length: int):
     start_time = time.time()
 
     pages_content = extract_text_without_headers_footers(pdf_bytes, skip_pages={0})
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=settings.CHUNK_SIZE,
-        chunk_overlap=settings.CHUNK_OVERLAP,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
         length_function=len
     )
 
@@ -41,7 +41,7 @@ def split_text_into_chunks(pdf_bytes: BytesIO):
                 })
                 start_idx = (end_idx - 20)
 
-            processed_chunks, processed_metadata = process_chunks(raw_chunks, page_metadata)
+            processed_chunks, processed_metadata = process_chunks(raw_chunks, page_metadata, min_chunk_length)
 
             for chunk, meta in zip(processed_chunks, processed_metadata):
                 chunks.append(Document(page_content=chunk, metadata=meta))
@@ -125,14 +125,14 @@ def format_duplication_rate(rate):
     return int(rate) if rate.is_integer() else round(rate, 2)
 
 
-def plagiarism_check(pdf_bytes: BytesIO):
+def plagiarism_check(pdf_bytes: BytesIO, threshold: float, chunk_size: int, chunk_overlap: int, min_chunk_length: int):
     print("\nBắt đầu kiểm tra đạo văn...")
 
     start_total = time.time()
 
     print("\nĐang tải và xử lý file PDF...")
     start_step = time.time()
-    query_chunks = split_text_into_chunks(pdf_bytes)
+    query_chunks = split_text_into_chunks(pdf_bytes, chunk_size, chunk_overlap, min_chunk_length)
     print(f"-> Thời gian xử lý file PDF: {time.time() - start_step:.4f} s")
 
     total_chunks = len(query_chunks)
@@ -147,7 +147,7 @@ def plagiarism_check(pdf_bytes: BytesIO):
     print("\nĐang kiểm tra với dữ liệu trong Qdrant...")
     start_step = time.time()
     client = QdrantClient(settings.QDRANT_HOST)
-    matches = compare_with_qdrant(query_chunks, query_embeddings, client)
+    matches = compare_with_qdrant(query_chunks, query_embeddings, client, threshold)
     print(f"-> Thời gian kiểm tra Qdrant: {time.time() - start_step:.4f} s")
 
     end_total = time.time()
