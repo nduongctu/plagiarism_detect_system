@@ -14,8 +14,8 @@ PDF_DIR = "../../data/pdf"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 256
 
-CHUNK_SIZE = 180
-CHUNK_OVERLAP = 15
+CHUNK_SIZE = 165
+CHUNK_OVERLAP = 20
 MIN_CHUNK_LENGTH = 60
 
 SIMILARITY_THRESHOLD = 0.79
