@@ -39,7 +39,7 @@ def split_text_into_chunks(pdf_bytes: BytesIO):
                     "start": start_idx,
                     "end": end_idx
                 })
-                start_idx = (end_idx - settings.CHUNK_OVERLAP)
+                start_idx = (end_idx - 20)
 
             processed_chunks, processed_metadata = process_chunks(raw_chunks, page_metadata)
 
