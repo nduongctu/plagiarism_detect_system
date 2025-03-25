@@ -3,7 +3,6 @@ langchain
 pymupdf
 numpy
 regex
-pyvi
 sentence-transformers
 torchvision
 torchaudio
@@ -11,4 +10,3 @@ python-docx
 fastapi
 python-multipart
 uvicorn
-docx2pdf
