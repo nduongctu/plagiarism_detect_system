@@ -39,7 +39,6 @@ def extract_text_without_headers_footers(pdf_bytes: BytesIO, skip_pages=None):
         if page_index in skip_pages:
             continue
 
-        # Lấy kích thước trang
         page_rect = page.rect
         page_height = page_rect.height
 
