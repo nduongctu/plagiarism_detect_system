@@ -79,7 +79,7 @@ async def upload_file(file: UploadFile = File(...)):
 
 
 @router.post("/check-plagiarism")
-async def check_plagiarism(option: int = Query(1, ge=1, le=2), threshold: float = Query(None)):
+async def check_plagiarism(option: int = Query(2, ge=1, le=2), threshold: float = Query(None)):
     if "latest_file" not in uploaded_files:
         raise HTTPException(status_code=404, detail="No uploaded file found")
 
@@ -98,9 +98,9 @@ async def check_plagiarism(option: int = Query(1, ge=1, le=2), threshold: float 
         min_chunk_length = settings.MIN_CHUNK_LENGTH
         similarity_threshold = threshold if threshold is not None else settings.SIMILARITY_THRESHOLD
 
-    # Gọi hàm kiểm tra đạo văn với cấu hình đã chọn
-    result = plagiarism_check(pdf_stream, threshold=similarity_threshold, chunk_size=chunk_size,
-                              chunk_overlap=chunk_overlap, min_chunk_length=min_chunk_length)
+    result = plagiarism_check(pdf_stream, filename=filename, threshold=similarity_threshold,
+                              chunk_size=chunk_size, chunk_overlap=chunk_overlap,
+                              min_chunk_length=min_chunk_length)
 
     return {"filename": filename, "result": result}
 

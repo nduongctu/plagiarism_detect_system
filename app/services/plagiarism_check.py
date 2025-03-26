@@ -1,12 +1,13 @@
 import time
 import torch
-from app.config import settings
-from qdrant_client import QdrantClient, models
-from langchain.schema import Document
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from app.utils.file_utils import clean_text, extract_text_without_headers_footers, process_chunks
-from app.services.save_to_Qdrant import embedding_model
 from io import BytesIO
+from app.config import settings
+from langchain.schema import Document
+from qdrant_client import QdrantClient, models
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from app.services.save_to_Qdrant import embedding_model
+from app.services.classify_plagiarism import classify_plagiarism_with_genai
+from app.utils.file_utils import clean_text, extract_text_without_headers_footers, process_chunks
 
 DEVICE = settings.DEVICE
 
@@ -125,56 +126,47 @@ def format_duplication_rate(rate):
     return int(rate) if rate.is_integer() else round(rate, 2)
 
 
-def plagiarism_check(pdf_bytes: BytesIO, threshold: float, chunk_size: int, chunk_overlap: int, min_chunk_length: int):
+def plagiarism_check(pdf_bytes: BytesIO, filename: str, threshold: float, chunk_size: int, chunk_overlap: int,
+                     min_chunk_length: int):
+    """
+    Kiểm tra đạo văn bằng cách kết hợp Qdrant (cosine similarity) và GenAI (phân loại).
+    """
     print("\nBắt đầu kiểm tra đạo văn...")
 
     start_total = time.time()
 
     print("\nĐang tải và xử lý file PDF...")
-    start_step = time.time()
     query_chunks = split_text_into_chunks(pdf_bytes, chunk_size, chunk_overlap, min_chunk_length)
-    print(f"-> Thời gian xử lý file PDF: {time.time() - start_step:.4f} s")
-
-    total_chunks = len(query_chunks)
-    print(f"Tổng số đoạn văn đã chia: {total_chunks}")
 
     print("\nĐang trích xuất embeddings...")
-    start_step = time.time()
     query_texts = [chunk.page_content for chunk in query_chunks]
     query_embeddings = embed_texts(query_texts)
-    print(f"-> Thời gian trích xuất embeddings: {time.time() - start_step:.4f} s")
 
     print("\nĐang kiểm tra với dữ liệu trong Qdrant...")
-    start_step = time.time()
     client = QdrantClient(settings.QDRANT_HOST)
     matches = compare_with_qdrant(query_chunks, query_embeddings, client, threshold)
-    print(f"-> Thời gian kiểm tra Qdrant: {time.time() - start_step:.4f} s")
+
+    print("\nĐang phân loại đạo văn...")
+    classified_matches = classify_plagiarism_with_genai(matches)
+
+    total_words = sum(len(chunk.page_content.split()) for chunk in query_chunks)
+
+    # Tính số từ bị trùng lặp
+    duplicated_words = sum(len(match["query_text"].split()) for match in classified_matches)
+
+    # Tính tỷ lệ trùng lặp theo số từ
+    duplication_rate = (duplicated_words / total_words) * 100 if total_words > 0 else 0
 
     end_total = time.time()
     print(f"\nTổng thời gian kiểm tra đạo văn: {end_total - start_total:.4f} s")
 
     result = {
-        "duplication_rate": 0,
-        "message": "Phát hiện trùng lặp",
-        "duplicate_passages": []
+        "filename": filename,
+        "result": {
+            "duplication_rate": int(duplication_rate) if duplication_rate.is_integer() else round(duplication_rate, 2),
+            "message": "Phát hiện trùng lặp" if classified_matches else "Không tìm thấy đoạn trùng lặp.",
+            "duplicate_passages": classified_matches
+        }
     }
-
-    if matches:
-        seen_query_chunks = set()
-        unique_matches = []
-        for match in matches:
-            query_text = match['query_text']
-            if query_text not in seen_query_chunks:
-                seen_query_chunks.add(query_text)
-                unique_matches.append(match)
-
-        unique_match_count = len(unique_matches)
-        duplication_rate = (unique_match_count / len(query_chunks)) * 100
-        result["duplication_rate"] = format_duplication_rate(duplication_rate)
-
-        for match in unique_matches:
-            result["duplicate_passages"].append(match)
-    else:
-        result["message"] = "Không tìm thấy đoạn trùng lặp."
 
     return result
