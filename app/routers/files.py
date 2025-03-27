@@ -1,6 +1,5 @@
 import io
 import os
-import datetime
 import subprocess
 import tempfile
 from fastapi import APIRouter, File, UploadFile, HTTPException, Query
@@ -49,7 +48,6 @@ async def upload_file(file: UploadFile = File(...)):
             temp_docx_path = temp_docx.name
 
         pdf_path = temp_docx_path.replace(".docx", ".pdf")
-
         try:
             subprocess.run(
                 ["libreoffice", "--headless", "--convert-to", "pdf", "--outdir", os.path.dirname(pdf_path),
@@ -79,7 +77,11 @@ async def upload_file(file: UploadFile = File(...)):
 
 
 @router.post("/check-plagiarism")
-async def check_plagiarism(option: int = Query(2, ge=1, le=2), threshold: float = Query(None)):
+async def check_plagiarism(
+        threshold: float = Query(None, description="Threshold for plagiarism check (default is 0.7)"),
+        x: int = Query(50, description="Plagiarism classification threshold (default 50)"),
+        n: int = Query(2, description="Minimum length of common phrase (default 2)")
+):
     if "latest_file" not in uploaded_files:
         raise HTTPException(status_code=404, detail="No uploaded file found")
 
@@ -87,20 +89,9 @@ async def check_plagiarism(option: int = Query(2, ge=1, le=2), threshold: float 
     pdf_stream = io.BytesIO(uploaded_files["latest_file"]["data"])
     pdf_stream.seek(0)
 
-    if option == 1:
-        chunk_size = settings.CHUNK_SIZE_opt1
-        chunk_overlap = settings.CHUNK_OVERLAP_opt1
-        min_chunk_length = settings.MIN_CHUNK_LENGTH_opt1
-        similarity_threshold = threshold if threshold is not None else settings.SIMILARITY_THRESHOLD_opt1
-    else:
-        chunk_size = settings.CHUNK_SIZE
-        chunk_overlap = settings.CHUNK_OVERLAP
-        min_chunk_length = settings.MIN_CHUNK_LENGTH
-        similarity_threshold = threshold if threshold is not None else settings.SIMILARITY_THRESHOLD
+    threshold_value = threshold if threshold is not None else settings.SIMILARITY_THRESHOLD
 
-    result = plagiarism_check(pdf_stream, filename=filename, threshold=similarity_threshold,
-                              chunk_size=chunk_size, chunk_overlap=chunk_overlap,
-                              min_chunk_length=min_chunk_length)
+    result = plagiarism_check(pdf_stream, threshold=threshold_value, x=x, n=n)
 
     return {"filename": filename, "result": result}
 
