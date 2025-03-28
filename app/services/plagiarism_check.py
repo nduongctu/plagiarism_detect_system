@@ -24,7 +24,6 @@ def split_text_into_chunks(pdf_bytes: BytesIO):
     )
 
     chunks = []
-    metadata_list = []
 
     for page in pages_content:
         cleaned_text = clean_text(page["content"])
@@ -56,40 +55,88 @@ def split_text_into_chunks(pdf_bytes: BytesIO):
 
 def embed_texts(texts):
     model = embedding_model
-    embeddings = []
-
-    start_total = time.time()
+    all_embeddings = []
 
     with torch.no_grad():
         for i in range(0, len(texts), settings.BATCH_SIZE):
             batch = texts[i:i + settings.BATCH_SIZE]
-
-            start_batch = time.time()
             batch_embeddings = model.encode(batch, convert_to_tensor=True, device=DEVICE)
-            end_batch = time.time()
+            all_embeddings.append(batch_embeddings)
 
-            print(
-                f"Embedding batch {i // settings.BATCH_SIZE + 1}: {len(batch)} texts -> {end_batch - start_batch:.4f} s")
-
-            embeddings.append(batch_embeddings)
-
-    end_total = time.time()
-    print(f"Tổng thời gian trích xuất embeddings: {end_total - start_total:.4f} s")
-
-    return torch.cat(embeddings, dim=0)
+    return torch.vstack(all_embeddings)
 
 
 def count_words_in_text(text: str) -> int:
     return len(text.split())
 
 
-def calculate_word_plagiarism_rate(common_phrases, query_text):
-    total_words_query = count_words_in_text(query_text)
-    total_common_words = sum(phrase["length"] for phrase in common_phrases)
-    duplication_rate_by_words = (total_common_words / total_words_query) * 100 if total_words_query > 0 else 0
-    # Giới hạn không vượt quá 100%
-    duplication_rate_by_words = min(duplication_rate_by_words, 100)
-    return round(duplication_rate_by_words, 2)
+def calculate_word_plagiarism_rate(word_plagiarism, total_words_in_document):
+    original_document = {}
+
+    for match in word_plagiarism:
+        query_text = match["query_text"]
+        query_words = query_text.split()
+
+        page_num = match.get("source_page", 0)
+
+        if page_num not in original_document:
+            original_document[page_num] = []
+
+        for i, word in enumerate(query_words):
+            original_document[page_num].append({
+                "word": word,
+                "chunk": query_text,
+                "local_index": i
+            })
+
+    global_indices = {}
+    global_idx = 0
+
+    for page in sorted(original_document.keys()):
+        seen_positions = set()
+        unique_words = []
+
+        for word_info in original_document[page]:
+            position_key = f"{word_info['chunk']}:{word_info['local_index']}"
+            if position_key not in seen_positions:
+                seen_positions.add(position_key)
+                word_info["global_index"] = global_idx
+                global_idx += 1
+                unique_words.append(word_info)
+
+        original_document[page] = unique_words
+
+        for word_info in unique_words:
+            chunk = word_info["chunk"]
+            local_idx = word_info["local_index"]
+            global_indices[(chunk, local_idx)] = word_info["global_index"]
+
+    plagiarized_indices = set()
+
+    for match in word_plagiarism:
+        query_text = match["query_text"]
+
+        for phrase in match["word_plagiarism"]:
+            local_start = phrase["query_index"]
+            length = phrase["length"]
+
+            for i in range(length):
+                local_idx = local_start + i
+                if (query_text, local_idx) in global_indices:
+                    global_idx = global_indices[(query_text, local_idx)]
+                    plagiarized_indices.add(global_idx)
+
+    total_plagiarized_words = len(plagiarized_indices)
+
+    duplication_rate = (
+        (total_plagiarized_words / total_words_in_document) * 100
+        if total_words_in_document > 0 else 0
+    )
+
+    duplication_rate = min(duplication_rate, 100)
+
+    print(f"Tổng số từ bị đạo từ ngữ: {total_plagiarized_words}")
+    return round(duplication_rate, 2)
 
 
 def compare_with_qdrant(query_chunks, query_embeddings, client, threshold=settings.SIMILARITY_THRESHOLD):
@@ -137,7 +184,9 @@ def compare_with_qdrant(query_chunks, query_embeddings, client, threshold=settin
 
 
 def format_duplication_rate(rate):
-    return int(rate) if rate.is_integer() else round(rate, 2)
+    if isinstance(rate, int):
+        return rate
+    return round(rate, 2)
 
 
 def preprocess_text(text):
@@ -145,7 +194,7 @@ def preprocess_text(text):
     return text.lower().split()
 
 
-def find_common_phrases(query_text, matched_text, min_length):
+def find_word_plagiarism(query_text, matched_text, min_length):
     words1 = preprocess_text(query_text)
     words2 = preprocess_text(matched_text)
 
@@ -193,45 +242,41 @@ def find_common_phrases(query_text, matched_text, min_length):
     return common_phrases, len(words2)
 
 
-def classify_plagiarism(matches, x=55, n=2):
+def check_word_plagiarism(matches, n=2):
     classified_results = []
 
     for match in matches:
         query_text = match["query_text"]
         matched_text = match["matched_text"]
 
-        common_phrases, total_matched_words = find_common_phrases(query_text, matched_text, n)
-
-        total_common_words = sum(phrase["length"] for phrase in common_phrases)
-        similarity_percentage = (total_common_words / total_matched_words) * 100 if total_matched_words > 0 else 0
-        plagiarism_type = "Đạo từ ngữ" if similarity_percentage > x else "Đạo ngữ nghĩa"
+        word_plagiarism, total_matched_words = find_word_plagiarism(query_text, matched_text, n)
 
         classified_results.append({
             **match,
-            "plagiarism_type": plagiarism_type,
-            "common_phrases": common_phrases,
+            "word_plagiarism": word_plagiarism,
         })
 
     return classified_results
 
 
-def plagiarism_check(pdf_bytes: BytesIO, threshold: float = None, x: int = 55, n: int = 2):
+def plagiarism_check(pdf_bytes: BytesIO, threshold: float = None, n: int = 2):
     print("\nBắt đầu kiểm tra đạo văn...")
 
     start_total = time.time()
-
     if threshold is None:
         threshold = settings.SIMILARITY_THRESHOLD
 
     print("\nĐang tải và xử lý file PDF...")
+
     start_step = time.time()
     query_chunks = split_text_into_chunks(pdf_bytes)
+    total_words_in_document = sum(len(chunk.page_content.split()) for chunk in query_chunks)
+    print(f"Tổng số từ trong tài liệu: {total_words_in_document}")
+
     print(f"-> Thời gian xử lý file PDF: {time.time() - start_step:.4f} s")
+    print(f"Tổng số đoạn văn đã chia: {len(query_chunks)}")
 
-    total_chunks = len(query_chunks)
-    print(f"Tổng số đoạn văn đã chia: {total_chunks}")
-
-    if total_chunks == 0:
+    if not query_chunks:
         return {
             "duplication_rate": 0,
             "message": "Tài liệu quá ngắn hoặc không có nội dung hợp lệ để kiểm tra.",
@@ -239,49 +284,43 @@ def plagiarism_check(pdf_bytes: BytesIO, threshold: float = None, x: int = 55, n
         }
 
     print("\nĐang trích xuất embeddings...")
+
     start_step = time.time()
     query_texts = [chunk.page_content for chunk in query_chunks]
     query_embeddings = embed_texts(query_texts)
+
     print(f"-> Thời gian trích xuất embeddings: {time.time() - start_step:.4f} s")
 
     print("\nĐang kiểm tra với dữ liệu trong Qdrant...")
+
     start_step = time.time()
     client = QdrantClient(settings.QDRANT_HOST)
     matches = compare_with_qdrant(query_chunks, query_embeddings, client, threshold)
+
     print(f"-> Thời gian kiểm tra Qdrant: {time.time() - start_step:.4f} s")
 
-    end_total = time.time()
-    print(f"\nTổng thời gian kiểm tra đạo văn: {end_total - start_total:.4f} s")
+    if not matches:
+        return {
+            "duplication_rate": 0,
+            "message": "Không tìm thấy đoạn trùng lặp.",
+            "duplicate_passages": []
+        }
+
+    print("\nKiểm tra đạo từ ngữ...")
+
+    word_plagiarism = check_word_plagiarism(matches, n)
+
+    unique_match_count = len(set(match["query_text"] for match in matches))
+    duplication_rate_semantic = (unique_match_count / len(query_chunks)) * 100
+
+    duplication_rate_by_words = calculate_word_plagiarism_rate(word_plagiarism, total_words_in_document)
 
     result = {
-        "duplication_rate": 0,
-        "message": "Không tìm thấy đoạn trùng lặp.",
-        "duplicate_passages": []
+        "duplication_rate_by_semantics": format_duplication_rate(duplication_rate_semantic),
+        "duplication_rate_by_words": format_duplication_rate(duplication_rate_by_words),
+        "message": "Phát hiện trùng lặp",
+        "duplicate_passages": word_plagiarism
     }
 
-    if matches:
-        seen_query_chunks = set()
-        unique_matches = []
-
-        for match in matches:
-            query_text = match['query_text']
-            if query_text not in seen_query_chunks:
-                seen_query_chunks.add(query_text)
-                unique_matches.append(match)
-
-        classified_matches = classify_plagiarism(unique_matches, x, n)
-
-        unique_match_count = len(unique_matches)
-        duplication_rate = (unique_match_count / total_chunks) * 100 if total_chunks > 0 else 0
-
-        total_common_rate = 0
-        for match in classified_matches:
-            total_common_rate += calculate_word_plagiarism_rate(match["common_phrases"], match["query_text"])
-        avg_duplication_rate_by_words = total_common_rate / len(classified_matches) if classified_matches else 0
-
-        result["duplication_rate"] = format_duplication_rate(duplication_rate)
-        result["duplication_rate_by_words"] = avg_duplication_rate_by_words
-        result["message"] = "Phát hiện trùng lặp"
-        result["duplicate_passages"] = classified_matches
-
+    print(f"\nTổng thời gian kiểm tra đạo văn: {time.time() - start_total:.4f} s")
     return result
