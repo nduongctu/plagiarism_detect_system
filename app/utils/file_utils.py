@@ -100,3 +100,82 @@ def process_chunks(chunks, metadata_list, min_chunk_length=None):
             processed_metadata.append(metadata)
 
     return processed_chunks, processed_metadata
+
+
+def extract_metadata(pdf_stream):
+    pdf_bytes = pdf_stream.read()
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    full_text = doc[0].get_text("text").strip()
+    doc.close()
+
+    lines = full_text.split('\n')
+    non_empty_lines = [line.strip() for line in lines if line.strip()]
+
+    sense_blocks = []
+    current_sense = ""
+    start_index = None
+    end_index = None
+
+    remove_keywords = [
+        "SỞ", "TRƯỜNG ĐẠI HỌC", "KHOA", "BỘ", "TRƯỜNG"
+    ]
+
+    for i, line in enumerate(non_empty_lines):
+        # Nếu dòng hoàn toàn là chữ hoa (không chứa ngoặc)
+        if line.isupper():
+            if current_sense == "":
+                start_index = i
+            current_sense += " " + line
+            end_index = i
+        elif line.startswith("(") and line.endswith(")"):
+            # Chuyển nội dung trong ngoặc thành chữ hoa
+            inside_text = line[1:-1].strip().upper()
+            # Nếu có khối đang gộp, nối dòng ngoặc này vào khối
+            if current_sense:
+                current_sense += " (" + inside_text + ")"
+                end_index = i
+            else:
+                # Nếu không có khối hiện hành, tạo một khối mới từ dòng ngoặc này
+                current_sense = "(" + inside_text + ")"
+                start_index = i
+                end_index = i
+        # Nếu dòng chứa ngoặc nhưng không hoàn toàn là ngoặc
+        elif "(" in line and ")" in line:
+            before_parentheses = line.split('(')[0].strip()
+            inside_parentheses = line.split('(')[1].split(')')[0].strip().upper()
+            if before_parentheses.isupper():
+                if current_sense == "":
+                    start_index = i
+                current_sense += " " + before_parentheses + " (" + inside_parentheses + ")"
+                end_index = i
+            else:
+                pass
+        else:
+            if current_sense:
+                sense_blocks.append((current_sense.strip(), start_index, end_index))
+                current_sense = ""
+                start_index = None
+                end_index = None
+
+    if current_sense:
+        sense_blocks.append((current_sense.strip(), start_index, end_index))
+
+    title = "Unknown"
+    title_block = None
+    if sense_blocks:
+        title_block = max(sense_blocks, key=lambda b: len(b[0]))
+        title = title_block[0]
+
+    for keyword in remove_keywords:
+        title = title.replace(keyword, "").strip()
+
+    author = "Unknown"
+    if title_block is not None:
+        _, _, end_idx = title_block
+        if end_idx + 1 < len(non_empty_lines):
+            author = non_empty_lines[end_idx + 1].strip()
+            author = re.sub(r'\*+', '', author)
+            author = re.sub(r'\d+', '', author)
+            author = author.strip()
+
+    return {"title": title, "author": author}

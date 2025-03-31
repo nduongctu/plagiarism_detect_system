@@ -7,6 +7,7 @@ from docx import Document
 from app.services.plagiarism_check import plagiarism_check
 from app.services.save_to_Qdrant import save_uploaded_pdf
 from app.config import settings
+from app.utils.file_utils import extract_metadata
 
 router = APIRouter()
 
@@ -29,7 +30,13 @@ async def upload_file(file: UploadFile = File(...)):
                 "filename": file.filename,
                 "data": file_bytes
             }
-            return {"filename": file.filename, "message": "PDF saved in memory"}
+            metadata = extract_metadata(io.BytesIO(file_bytes))
+            return {
+                "filename": file.filename,
+                "message": "PDF saved in memory",
+                "title": metadata["title"],
+                "author": metadata["author"]
+            }
 
         docx_stream = io.BytesIO(file_bytes)
 
@@ -70,7 +77,14 @@ async def upload_file(file: UploadFile = File(...)):
             "data": pdf_bytes
         }
 
-        return {"filename": f"{filename_without_ext}.pdf", "message": "Converted and saved in memory"}
+        metadata = extract_metadata(io.BytesIO(pdf_bytes))
+
+        return {
+            "filename": f"{filename_without_ext}.pdf",
+            "message": "Converted and saved in memory",
+            "title": metadata["title"],
+            "author": metadata["author"]
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File processing error: {str(e)}")
