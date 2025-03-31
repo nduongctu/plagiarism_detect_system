@@ -4,17 +4,30 @@ from app.config.settings import MIN_CHUNK_LENGTH
 from io import BytesIO
 
 
-def clean_text(text):
-    text = text.lower()
-    text = re.sub(r"\d+(\.\d+)?", "", text)
-    text = re.sub(r"[_\-]", " ", text)
-    text = re.sub(r"[^\w\s]", "", text)
-    text = re.sub(r"cộng\s*hòa\s*xã\s*hội\s*chủ\s*nghĩa\s*việt\s*nam[\s\W]*", " ", text, flags=re.IGNORECASE)
-    text = re.sub(r"độc\s*lập\s*-?\s*tự\s*do\s*-?\s*hạnh\s*phúc[\s\W]*", " ", text, flags=re.IGNORECASE)
-    text = re.sub(r"ngày\s+\w*\s*tháng\s+\w*\s*năm\s+\w*", " ", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s+", " ", text).strip()
-    # text = tokenize(text)
-    return text
+def clean_text_with_mapping(text):
+    mapping = []
+    cleaned_text = []
+
+    index_in_original = 0
+
+    for char in text:
+        if char.isalnum() or char.isspace():
+            mapping.append(index_in_original)
+            cleaned_text.append(char)
+        index_in_original += 1
+
+    cleaned_text = "".join(cleaned_text).lower()
+    cleaned_text = re.sub(r"\bngày\s+\d{1,2}\s*tháng\s+\d{1,2}\s*năm\s+\d{4}\b", " ", cleaned_text, flags=re.IGNORECASE)
+    cleaned_text = re.sub(r"\d+(\.\d+)?", "", cleaned_text)
+    cleaned_text = re.sub(r"[_\-]", " ", cleaned_text)
+    cleaned_text = re.sub(r"[^\w\s]", "", cleaned_text)
+    cleaned_text = re.sub(r"cộng\s*hòa\s*xã\s*hội\s*chủ\s*nghĩa\s*việt\s*nam[\s\W]*", " ", cleaned_text,
+                          flags=re.IGNORECASE)
+    cleaned_text = re.sub(r"độc\s*lập\s*-?\s*tự\s*do\s*-?\s*hạnh\s*phúc[\s\W]*", " ", cleaned_text, flags=re.IGNORECASE)
+    cleaned_text = re.sub(r'"[^"]*"', ' ', cleaned_text)
+    cleaned_text = re.sub(r"\s+", " ", cleaned_text).strip()
+
+    return cleaned_text, mapping
 
 
 def extract_text_without_headers_footers(pdf_bytes: BytesIO, skip_pages=None):

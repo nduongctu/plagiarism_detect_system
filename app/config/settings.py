@@ -11,6 +11,6 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 256
 
 CHUNK_SIZE = 156
-CHUNK_OVERLAP = 30
+CHUNK_OVERLAP = 0
 MIN_CHUNK_LENGTH = 100
 SIMILARITY_THRESHOLD = 0.75

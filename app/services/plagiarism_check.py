@@ -5,7 +5,7 @@ from app.config import settings
 from qdrant_client import QdrantClient, models
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from app.utils.file_utils import clean_text, extract_text_without_headers_footers, process_chunks
+from app.utils.file_utils import clean_text_with_mapping, extract_text_without_headers_footers, process_chunks
 from app.services.save_to_Qdrant import embedding_model
 import re
 from app.config import settings
@@ -26,21 +26,21 @@ def split_text_into_chunks(pdf_bytes: BytesIO):
     chunks = []
 
     for page in pages_content:
-        cleaned_text = clean_text(page["content"])
+        cleaned_text, mapping = clean_text_with_mapping(page["content"])
         if cleaned_text:
             raw_chunks = text_splitter.split_text(cleaned_text)
 
-            start_idx = 0
             page_metadata = []
             for chunk in raw_chunks:
-                end_idx = start_idx + len(chunk)
+                start_idx = mapping[0] if mapping else 0
+                end_idx = mapping[min(len(mapping) - 1, len(chunk) - 1)]
+
                 page_metadata.append({
                     "source": "uploaded_file",
                     "page": page["page"],
                     "start": start_idx,
                     "end": end_idx
                 })
-                start_idx = (end_idx - 20)
 
             processed_chunks, processed_metadata = process_chunks(raw_chunks, page_metadata, settings.MIN_CHUNK_LENGTH)
 
@@ -71,62 +71,7 @@ def count_words_in_text(text: str) -> int:
 
 
 def calculate_word_plagiarism_rate(word_plagiarism, total_words_in_document):
-    original_document = {}
-
-    for match in word_plagiarism:
-        query_text = match["query_text"]
-        query_words = query_text.split()
-
-        page_num = match.get("source_page", 0)
-
-        if page_num not in original_document:
-            original_document[page_num] = []
-
-        for i, word in enumerate(query_words):
-            original_document[page_num].append({
-                "word": word,
-                "chunk": query_text,
-                "local_index": i
-            })
-
-    global_indices = {}
-    global_idx = 0
-
-    for page in sorted(original_document.keys()):
-        seen_positions = set()
-        unique_words = []
-
-        for word_info in original_document[page]:
-            position_key = f"{word_info['chunk']}:{word_info['local_index']}"
-            if position_key not in seen_positions:
-                seen_positions.add(position_key)
-                word_info["global_index"] = global_idx
-                global_idx += 1
-                unique_words.append(word_info)
-
-        original_document[page] = unique_words
-
-        for word_info in unique_words:
-            chunk = word_info["chunk"]
-            local_idx = word_info["local_index"]
-            global_indices[(chunk, local_idx)] = word_info["global_index"]
-
-    plagiarized_indices = set()
-
-    for match in word_plagiarism:
-        query_text = match["query_text"]
-
-        for phrase in match["word_plagiarism"]:
-            local_start = phrase["query_index"]
-            length = phrase["length"]
-
-            for i in range(length):
-                local_idx = local_start + i
-                if (query_text, local_idx) in global_indices:
-                    global_idx = global_indices[(query_text, local_idx)]
-                    plagiarized_indices.add(global_idx)
-
-    total_plagiarized_words = len(plagiarized_indices)
+    total_plagiarized_words = sum(phrase["length"] for match in word_plagiarism for phrase in match["word_plagiarism"])
 
     duplication_rate = (
         (total_plagiarized_words / total_words_in_document) * 100
@@ -135,7 +80,7 @@ def calculate_word_plagiarism_rate(word_plagiarism, total_words_in_document):
 
     duplication_rate = min(duplication_rate, 100)
 
-    print(f"Tổng số từ bị đạo từ ngữ: {total_plagiarized_words}")
+    print(f"Tổng số từ bị đạo văn: {total_plagiarized_words}")
     return round(duplication_rate, 2)
 
 
@@ -183,15 +128,15 @@ def compare_with_qdrant(query_chunks, query_embeddings, client, threshold=settin
     return matches
 
 
+def preprocess_text(text):
+    text = re.sub(r'[^\w\s]', '', text)
+    return text.lower().split()
+
+
 def format_duplication_rate(rate):
     if isinstance(rate, int):
         return rate
     return round(rate, 2)
-
-
-def preprocess_text(text):
-    text = re.sub(r'[^\w\s]', '', text)
-    return text.lower().split()
 
 
 def find_word_plagiarism(query_text, matched_text, min_length):
