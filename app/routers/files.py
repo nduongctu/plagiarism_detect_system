@@ -1,5 +1,6 @@
 import io
 import os
+import json
 import subprocess
 import tempfile
 from fastapi import APIRouter, File, UploadFile, HTTPException, Query
@@ -7,7 +8,7 @@ from docx import Document
 from app.services.plagiarism_check import plagiarism_check
 from app.services.save_to_Qdrant import save_uploaded_pdf
 from app.config import settings
-from app.utils.file_utils import extract_metadata
+from app.services.extract_info import extract_info_with_gemini
 
 router = APIRouter()
 
@@ -30,12 +31,11 @@ async def upload_file(file: UploadFile = File(...)):
                 "filename": file.filename,
                 "data": file_bytes
             }
-            metadata = extract_metadata(io.BytesIO(file_bytes))
+            metadata = extract_info_with_gemini(io.BytesIO(file_bytes))
             return {
                 "filename": file.filename,
                 "message": "PDF saved in memory",
-                "title": metadata["title"],
-                "author": metadata["author"]
+                "metadata": metadata
             }
 
         docx_stream = io.BytesIO(file_bytes)
@@ -77,13 +77,12 @@ async def upload_file(file: UploadFile = File(...)):
             "data": pdf_bytes
         }
 
-        metadata = extract_metadata(io.BytesIO(pdf_bytes))
+        metadata = extract_info_with_gemini(io.BytesIO(pdf_bytes))
 
         return {
             "filename": f"{filename_without_ext}.pdf",
             "message": "Converted and saved in memory",
-            "title": metadata["title"],
-            "author": metadata["author"]
+            "metadata": metadata
         }
 
     except Exception as e:

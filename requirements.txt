@@ -12,3 +12,5 @@ uvicorn
 einops
 transformers
 sentence-transformers
+google-generativeai
+python-dotenv

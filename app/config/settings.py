@@ -10,6 +10,8 @@ DISTANCE_METRIC = "cosine"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 256
 
+model_name = "gemini-2.0-flash-thinking-exp-01-21"
+
 CHUNK_SIZE = 156
 CHUNK_OVERLAP = 0
 MIN_CHUNK_LENGTH = 100
