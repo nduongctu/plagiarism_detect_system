@@ -37,26 +37,25 @@ def extract_info_with_gemini(pdf_stream):
 
     prompt = f"""
     Phân tích văn bản sau và trích xuất thông tin theo định dạng JSON, kết quả trả về tiếng Việt.
-    Giới tính ( male hoặc female) có thể dựa theo tên.
-    Field nào không có thì trả về null.
     Dữ liệu đầu vào:
-    {pdf_text}.
+    {pdf_text}
+
     Yêu cầu đầu ra:
     {{
-        "title": "string",
+        "title": "string // Tiêu đề của bài viết, nếu có thể xác định.",
         "author": [
             {{
-                "name": "string",
-                "gender": "string",
-                "dob": "date (YYYY-MM-DD)",
-                "email": "string",
-                "phone": "string",
-                "organization": "string",
-                "department": "string",
-                "position": "string"
+                "name": "string // Họ và tên đầy đủ của tác giả.",
+                "gender": "string // Giới tính của tác giả, có thể dựa theo tên (male/female/null).",
+                "dob": "string // Ngày sinh của tác giả theo định dạng YYYY-MM-DD, nếu có.",
+                "email": "string // Địa chỉ email của tác giả, nếu có.",
+                "phone": "string // Số điện thoại của tác giả, nếu có.",
+                "organization": "string // Tên tổ chức (trường đại học, viện nghiên cứu, công ty,...) mà tác giả trực thuộc.",
+                "department": "string // Tên phòng ban của tác giả trong tổ chức (nếu có).",
+                "position": "string // Chức vụ của tác giả tại tổ chức (nếu có)."
             }}
         ],
-        "research_field": "string"
+        "research_field": "string // Lĩnh vực nghiên cứu chính của bài viết, nếu có thể xác định."
     }}
     """
 

@@ -31,16 +31,18 @@ def split_text_into_chunks(pdf_bytes: BytesIO):
             raw_chunks = text_splitter.split_text(cleaned_text)
 
             page_metadata = []
+            current_pos = 0
             for chunk in raw_chunks:
-                start_idx = mapping[0] if mapping else 0
-                end_idx = mapping[min(len(mapping) - 1, len(chunk) - 1)]
-
+                chunk_length = len(chunk)
+                start_idx = mapping[current_pos] if mapping and current_pos < len(mapping) else 0
+                end_idx = mapping[min(len(mapping) - 1, current_pos + chunk_length - 1)] if mapping else 0
                 page_metadata.append({
                     "source": "uploaded_file",
                     "page": page["page"],
                     "start": start_idx,
                     "end": end_idx
                 })
+                current_pos += chunk_length
 
             processed_chunks, processed_metadata = process_chunks(raw_chunks, page_metadata, settings.MIN_CHUNK_LENGTH)
 

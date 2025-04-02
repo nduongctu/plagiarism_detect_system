@@ -91,7 +91,7 @@ async def upload_file(file: UploadFile = File(...)):
 
 @router.post("/check-plagiarism")
 async def check_plagiarism(
-        threshold: float = Query(0.75, description="Threshold for plagiarism check (default is 0.75)"),
+        threshold: float = Query(0.75, description="Threshold for plagiarism check (default 0.75)"),
         n: int = Query(2, description="Minimum length of common phrase (default 2)")
 ):
     if "latest_file" not in uploaded_files:
