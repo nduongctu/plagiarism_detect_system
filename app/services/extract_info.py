@@ -3,14 +3,17 @@ import re
 import json
 import fitz
 from dotenv import load_dotenv
-import google.generativeai as genai
+from openai import OpenAI
 from app.config import settings
 
 load_dotenv()
 
-model_name = settings.model_name
-genai.configure(api_key=os.getenv('API_GEMINI_KEY'))
-model = genai.GenerativeModel(model_name)
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY,
+)
 
 
 def extract_text_from_pdf_stream(pdf_stream):
@@ -46,7 +49,7 @@ def extract_info_with_gemini(pdf_stream):
         "author": [
             {{
                 "name": "string // Họ và tên đầy đủ của tác giả.",
-                "gender": "string // Giới tính của tác giả, có thể dựa theo tên (male/female/null).",
+                "gender": "string // Giới tính của tác giả, có thể dựa theo tên (male/female/None).",
                 "dob": "string // Ngày sinh của tác giả theo định dạng YYYY-MM-DD, nếu có.",
                 "email": "string // Địa chỉ email của tác giả, nếu có.",
                 "phone": "string // Số điện thoại của tác giả, nếu có.",
@@ -60,24 +63,20 @@ def extract_info_with_gemini(pdf_stream):
     """
 
     try:
-        response = model.generate_content(prompt)
-
-        if response and response.text:
-            response_text = response.text.replace('"unknown"', 'null').strip().lstrip('\ufeff')
-
+        response = client.chat.completions.create(
+            model="google/gemini-2.0-flash-exp:free",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        if response and response.choices:
+            response_text = response.choices[0].message.content.strip().lstrip('\ufeff')
             response_text = re.sub(r"^```json\s*", "", response_text)
             response_text = re.sub(r"\s*```$", "", response_text)
-
-            if not response_text:
-                return '{"error": "Response text is empty after processing."}'
-
             try:
                 json_data = json.loads(response_text)
                 return json_data
             except json.JSONDecodeError as e:
                 return f'{{"error": "Lỗi JSON: {str(e)}"}}'
         else:
-            return '{"error": "Không có phản hồi từ API Gemini."}'
-
+            return '{"error": "Không có phản hồi từ API OpenAI."}'
     except Exception as e:
         return f'{{"error": "Lỗi API: {e}"}}'
