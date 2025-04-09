@@ -9,6 +9,7 @@ from app.services.plagiarism_check import plagiarism_check
 from app.services.save_to_Qdrant import save_uploaded_pdf
 from app.config import settings
 from app.services.extract_info import extract_info_with_gemini
+from app.services.check_text_pdf import check_if_text_pdf
 
 router = APIRouter()
 
@@ -23,65 +24,66 @@ async def upload_file(file: UploadFile = File(...)):
         if file_ext not in ["pdf", "docx", "doc"]:
             raise HTTPException(status_code=400, detail="Unsupported file type")
 
-        file_bytes = await file.read()
         filename_without_ext = os.path.splitext(file.filename)[0]
 
-        if file_ext == "pdf":
-            uploaded_files["latest_file"] = {
-                "filename": file.filename,
-                "data": file_bytes
-            }
-            metadata = extract_info_with_gemini(io.BytesIO(file_bytes))
-            return {
-                "filename": file.filename,
-                "message": "PDF saved in memory",
-                "metadata": metadata
-            }
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
+            temp_pdf_path = temp_pdf.name
 
-        docx_stream = io.BytesIO(file_bytes)
+            if file_ext == "pdf":
+                pdf_bytes = await file.read()
+                with open(temp_pdf_path, "wb") as temp_pdf_file:
+                    temp_pdf_file.write(pdf_bytes)
 
-        if file_ext == "doc":
-            try:
-                doc = Document(docx_stream)
-                docx_stream = io.BytesIO()
-                doc.save(docx_stream)
-                docx_stream.seek(0)
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Error converting DOC to DOCX: {str(e)}")
+                is_text_pdf = check_if_text_pdf(temp_pdf_path)
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as temp_docx:
-            temp_docx.write(docx_stream.getvalue())
-            temp_docx.flush()
-            temp_docx_path = temp_docx.name
+                # Lưu trạng thái PDF vào uploaded_files
+                uploaded_files["latest_file"] = {
+                    "filename": f"{filename_without_ext}.pdf",
+                    "path": temp_pdf_path,
+                    "is_text_pdf": is_text_pdf
+                }
 
-        pdf_path = temp_docx_path.replace(".docx", ".pdf")
-        try:
-            subprocess.run(
-                ["libreoffice", "--headless", "--convert-to", "pdf", "--outdir", os.path.dirname(pdf_path),
-                 temp_docx_path],
-                check=True
-            )
+            else:
+                # Xử lý file DOCX hoặc DOC
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as temp_docx:
+                    docx_temp_path = temp_docx.name
+                    with open(docx_temp_path, "wb") as temp_docx_file:
+                        temp_docx_file.write(await file.read())
 
-            with open(pdf_path, "rb") as pdf_file:
-                pdf_bytes = pdf_file.read()
+                    try:
+                        # Chuyển đổi DOCX sang PDF
+                        subprocess.run(
+                            ["libreoffice", "--headless", "--convert-to", "pdf", "--outdir",
+                             os.path.dirname(temp_pdf_path),
+                             docx_temp_path],
+                            check=True
+                        )
+                        converted_pdf_path = docx_temp_path.replace(".docx", ".pdf")
+                        with open(converted_pdf_path, "rb") as converted_pdf:
+                            with open(temp_pdf_path, "wb") as temp_pdf_file:
+                                temp_pdf_file.write(converted_pdf.read())
 
-        except subprocess.CalledProcessError as e:
-            raise HTTPException(status_code=500, detail=f"Failed to convert DOCX to PDF: {str(e)}")
+                    except subprocess.CalledProcessError as e:
+                        raise HTTPException(status_code=500, detail=f"Failed to convert DOCX to PDF: {str(e)}")
+                    finally:
+                        os.remove(docx_temp_path)
+                        if os.path.exists(converted_pdf_path):
+                            os.remove(converted_pdf_path)
 
-        finally:
-            os.remove(temp_docx_path)
-            os.remove(pdf_path)
+                # Lưu thông tin vào uploaded_files
+                uploaded_files["latest_file"] = {
+                    "filename": f"{filename_without_ext}.pdf",
+                    "path": temp_pdf_path,
+                    "is_text_pdf": True
+                }
 
-        uploaded_files["latest_file"] = {
-            "filename": f"{filename_without_ext}.pdf",
-            "data": pdf_bytes
-        }
-
-        metadata = extract_info_with_gemini(io.BytesIO(pdf_bytes))
+        # Trích xuất metadata từ file PDF và Gemini API
+        metadata = extract_info_with_gemini(uploaded_files["latest_file"]["path"],
+                                            uploaded_files["latest_file"]["is_text_pdf"])
 
         return {
             "filename": f"{filename_without_ext}.pdf",
-            "message": "Converted and saved in memory",
+            "message": "File saved to disk, metadata extracted.",
             "metadata": metadata
         }
 

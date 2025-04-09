@@ -14,3 +14,5 @@ transformers
 sentence-transformers
 openai
 python-dotenv
+pytesseract
+pdf2image
