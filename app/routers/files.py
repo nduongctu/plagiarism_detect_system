@@ -1,6 +1,6 @@
 import io
 import os
-import datetime
+import json
 import subprocess
 import tempfile
 from fastapi import APIRouter, File, UploadFile, HTTPException, Query
@@ -8,6 +8,8 @@ from docx import Document
 from app.services.plagiarism_check import plagiarism_check
 from app.services.save_to_Qdrant import save_uploaded_pdf
 from app.config import settings
+from app.services.extract_info import extract_info_with_gemini
+from app.services.check_text_pdf import check_if_text_pdf
 
 router = APIRouter()
 
@@ -26,11 +28,20 @@ async def upload_file(file: UploadFile = File(...)):
         filename_without_ext = os.path.splitext(file.filename)[0]
 
         if file_ext == "pdf":
+            is_text_pdf = check_if_text_pdf(io.BytesIO(file_bytes))
+
             uploaded_files["latest_file"] = {
                 "filename": file.filename,
-                "data": file_bytes
+                "data": file_bytes,
+                "is_text_pdf": is_text_pdf
             }
-            return {"filename": file.filename, "message": "PDF saved in memory"}
+
+            metadata = extract_info_with_gemini(io.BytesIO(file_bytes), is_text_pdf)
+            return {
+                "filename": file.filename,
+                "message": "PDF saved in memory",
+                "metadata": metadata
+            }
 
         docx_stream = io.BytesIO(file_bytes)
 
@@ -49,7 +60,6 @@ async def upload_file(file: UploadFile = File(...)):
             temp_docx_path = temp_docx.name
 
         pdf_path = temp_docx_path.replace(".docx", ".pdf")
-
         try:
             subprocess.run(
                 ["libreoffice", "--headless", "--convert-to", "pdf", "--outdir", os.path.dirname(pdf_path),
@@ -65,44 +75,51 @@ async def upload_file(file: UploadFile = File(...)):
 
         finally:
             os.remove(temp_docx_path)
-            os.remove(pdf_path)
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
 
         uploaded_files["latest_file"] = {
             "filename": f"{filename_without_ext}.pdf",
-            "data": pdf_bytes
+            "data": pdf_bytes,
+            "is_text_pdf": True
         }
 
-        return {"filename": f"{filename_without_ext}.pdf", "message": "Converted and saved in memory"}
+        is_text_pdf = True
+        metadata = extract_info_with_gemini(io.BytesIO(pdf_bytes), is_text_pdf)
+
+        return {
+            "filename": f"{filename_without_ext}.pdf",
+            "message": "Converted and saved in memory",
+            "metadata": metadata
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File processing error: {str(e)}")
 
 
 @router.post("/check-plagiarism")
-async def check_plagiarism(option: int = Query(1, ge=1, le=2), threshold: float = Query(None)):
+async def check_plagiarism(
+        threshold: float = Query(0.75, description="Threshold for plagiarism check (default 0.75)"),
+        n: int = Query(2, description="Minimum length of common phrase (default 2)")
+):
     if "latest_file" not in uploaded_files:
         raise HTTPException(status_code=404, detail="No uploaded file found")
 
-    filename = uploaded_files["latest_file"]["filename"]
-    pdf_stream = io.BytesIO(uploaded_files["latest_file"]["data"])
+    file_info = uploaded_files["latest_file"]
+    filename = file_info["filename"]
+    pdf_stream = io.BytesIO(file_info["data"])
+    is_text_pdf = file_info["is_text_pdf"]
     pdf_stream.seek(0)
+    print(f"is_text_pdf: {is_text_pdf}")
 
-    if option == 1:
-        chunk_size = settings.CHUNK_SIZE_opt1
-        chunk_overlap = settings.CHUNK_OVERLAP_opt1
-        min_chunk_length = settings.MIN_CHUNK_LENGTH_opt1
-        similarity_threshold = threshold if threshold is not None else settings.SIMILARITY_THRESHOLD_opt1
-    else:
-        chunk_size = settings.CHUNK_SIZE
-        chunk_overlap = settings.CHUNK_OVERLAP
-        min_chunk_length = settings.MIN_CHUNK_LENGTH
-        similarity_threshold = threshold if threshold is not None else settings.SIMILARITY_THRESHOLD
+    threshold_value = threshold if threshold is not None else settings.SIMILARITY_THRESHOLD
 
-    # Gọi hàm kiểm tra đạo văn với cấu hình đã chọn
-    result = plagiarism_check(pdf_stream, threshold=similarity_threshold, chunk_size=chunk_size,
-                              chunk_overlap=chunk_overlap, min_chunk_length=min_chunk_length)
+    result = plagiarism_check(pdf_stream, is_text_pdf=is_text_pdf, threshold=threshold_value, n=n)
 
-    return {"filename": filename, "result": result}
+    return {
+        "filename": filename,
+        "result": result
+    }
 
 
 @router.post("/save-file")
@@ -110,10 +127,12 @@ async def save_file():
     if "latest_file" not in uploaded_files:
         raise HTTPException(status_code=404, detail="No uploaded file in memory")
 
-    filename = uploaded_files["latest_file"]["filename"]
-    pdf_stream = io.BytesIO(uploaded_files["latest_file"]["data"])
+    file_info = uploaded_files["latest_file"]
+    filename = file_info["filename"]
+    pdf_stream = io.BytesIO(file_info["data"])
+    is_text_pdf = file_info["is_text_pdf"]
     pdf_stream.seek(0)
 
-    result = save_uploaded_pdf(pdf_stream, filename)
+    result = save_uploaded_pdf(pdf_stream, filename, is_text_pdf=is_text_pdf)
 
     return {"message": result["message"]}

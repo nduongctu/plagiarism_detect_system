@@ -3,10 +3,16 @@ langchain
 pymupdf
 numpy
 regex
-sentence-transformers
 torchvision
 torchaudio
 python-docx
 fastapi
 python-multipart
 uvicorn
+einops
+transformers
+sentence-transformers
+openai
+python-dotenv
+pytesseract
+pdf2image
