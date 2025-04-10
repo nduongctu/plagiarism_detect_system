@@ -7,6 +7,7 @@ from PIL import Image
 from dotenv import load_dotenv
 from openai import OpenAI
 from app.config import settings
+from pdf2image import convert_from_bytes
 
 load_dotenv()
 
@@ -41,8 +42,6 @@ def extract_text_from_pdf_stream(pdf_stream):
 
 def extract_text_from_pdf_scan(pdf_stream):
     """Trích xuất văn bản từ file PDF scan (dạng bytes stream) bằng OCR và tiền xử lý."""
-    from pdf2image import convert_from_bytes
-
     pages = convert_from_bytes(pdf_stream.read(), dpi=300, first_page=1, last_page=2)
 
     extracted_text = ""
