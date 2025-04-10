@@ -21,48 +21,32 @@ client = OpenAI(
 )
 
 
-def extract_text_from_pdf_stream(pdf_stream):
+def extract_info_with_gemini(pdf_stream):
     try:
         pdf_bytes = pdf_stream.read()
-
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-
         num_pages = min(2, doc.page_count)
-        full_text = ""
+        text = ""
         for i in range(num_pages):
-            full_text += doc[i].get_text("text") + "\n"
-
+            page_text = doc[i].get_text("text").strip()
+            text += page_text + "\n"
         doc.close()
 
-        full_text = re.sub(r'\s+', ' ', full_text).strip()
-        return full_text
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        if not text or len(text) < 15:
+            pages = convert_from_bytes(pdf_bytes, dpi=300, first_page=1, last_page=2)
+            text = ""
+            for page in pages:
+                text += pytesseract.image_to_string(page, lang="vie") + "\n"
+            text = re.sub(r'\s+', ' ', text).strip()
     except Exception as e:
-        return f"Lỗi: {e}"
-
-
-def extract_text_from_pdf_scan(pdf_stream):
-    """Trích xuất văn bản từ file PDF scan (dạng bytes stream) bằng OCR và tiền xử lý."""
-    pages = convert_from_bytes(pdf_stream.read(), dpi=300, first_page=1, last_page=2)
-
-    extracted_text = ""
-    for page in pages:
-        text = pytesseract.image_to_string(page, lang="vie")
-        extracted_text += text + "\n"
-
-    full_text = re.sub(r'\s+', ' ', extracted_text).strip()
-    return full_text
-
-
-def extract_info_with_gemini(pdf_stream, is_text_pdf):
-    if is_text_pdf:
-        pdf_text = extract_text_from_pdf_stream(pdf_stream)
-    else:
-        pdf_text = extract_text_from_pdf_scan(pdf_stream)
+        return f'{{"error": "Lỗi xử lý văn bản: {e}"}}'
 
     prompt = f"""
     Phân tích văn bản sau và trích xuất thông tin theo định dạng JSON, kết quả trả về tiếng Việt.
     Dữ liệu đầu vào:
-    {pdf_text}
+    {text}
 
     Yêu cầu đầu ra:
     {{

@@ -13,11 +13,10 @@ MODEL_PATH = os.path.join(BASE_DIR, "models/DEk21_hcmute_embedding")
 embedding_model = SentenceTransformer(MODEL_PATH, device=DEVICE)
 
 
-def save_uploaded_pdf(pdf_stream: io.BytesIO, filename: str, is_text_pdf: bool):
+def save_uploaded_pdf(pdf_stream: io.BytesIO, filename: str):
     print(f"Đang xử lý file: {filename}")
-    print(f"is_text_pdf: {is_text_pdf}")
 
-    pages_content = extract_text_without_headers_footers(pdf_stream, is_text_pdf)
+    pages_content = extract_text_without_headers_footers(pdf_stream)
     documents = []
 
     text_splitter = RecursiveCharacterTextSplitter(

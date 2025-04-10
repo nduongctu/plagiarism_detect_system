@@ -28,15 +28,12 @@ async def upload_file(file: UploadFile = File(...)):
         filename_without_ext = os.path.splitext(file.filename)[0]
 
         if file_ext == "pdf":
-            is_text_pdf = check_if_text_pdf(io.BytesIO(file_bytes))
-
             uploaded_files["latest_file"] = {
                 "filename": file.filename,
                 "data": file_bytes,
-                "is_text_pdf": is_text_pdf
             }
 
-            metadata = extract_info_with_gemini(io.BytesIO(file_bytes), is_text_pdf)
+            metadata = extract_info_with_gemini(io.BytesIO(file_bytes))
             return {
                 "filename": file.filename,
                 "message": "PDF saved in memory",
@@ -81,11 +78,9 @@ async def upload_file(file: UploadFile = File(...)):
         uploaded_files["latest_file"] = {
             "filename": f"{filename_without_ext}.pdf",
             "data": pdf_bytes,
-            "is_text_pdf": True
         }
 
-        is_text_pdf = True
-        metadata = extract_info_with_gemini(io.BytesIO(pdf_bytes), is_text_pdf)
+        metadata = extract_info_with_gemini(io.BytesIO(pdf_bytes))
 
         return {
             "filename": f"{filename_without_ext}.pdf",
@@ -108,13 +103,11 @@ async def check_plagiarism(
     file_info = uploaded_files["latest_file"]
     filename = file_info["filename"]
     pdf_stream = io.BytesIO(file_info["data"])
-    is_text_pdf = file_info["is_text_pdf"]
     pdf_stream.seek(0)
-    print(f"is_text_pdf: {is_text_pdf}")
 
     threshold_value = threshold if threshold is not None else settings.SIMILARITY_THRESHOLD
 
-    result = plagiarism_check(pdf_stream, is_text_pdf=is_text_pdf, threshold=threshold_value, n=n)
+    result = plagiarism_check(pdf_stream, threshold=threshold_value, n=n)
 
     return {
         "filename": filename,
@@ -130,9 +123,8 @@ async def save_file():
     file_info = uploaded_files["latest_file"]
     filename = file_info["filename"]
     pdf_stream = io.BytesIO(file_info["data"])
-    is_text_pdf = file_info["is_text_pdf"]
     pdf_stream.seek(0)
 
-    result = save_uploaded_pdf(pdf_stream, filename, is_text_pdf=is_text_pdf)
+    result = save_uploaded_pdf(pdf_stream, filename)
 
     return {"message": result["message"]}

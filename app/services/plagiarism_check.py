@@ -13,10 +13,10 @@ from app.config import settings
 DEVICE = settings.DEVICE
 
 
-def split_text_into_chunks(pdf_bytes: BytesIO, is_text_pdf: bool):
+def split_text_into_chunks(pdf_bytes: BytesIO):
     start_time = time.time()
 
-    pages_content = extract_text_without_headers_footers(pdf_bytes, is_text_pdf, skip_pages={0})
+    pages_content = extract_text_without_headers_footers(pdf_bytes, skip_pages={0})
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.CHUNK_SIZE,
         chunk_overlap=settings.CHUNK_OVERLAP,
@@ -212,7 +212,7 @@ def check_word_plagiarism(matches, n=2):
     return classified_results
 
 
-def plagiarism_check(pdf_bytes: BytesIO, is_text_pdf: bool, threshold: float = None, n: int = 2):
+def plagiarism_check(pdf_bytes: BytesIO, threshold: float = None, n: int = 2):
     print("\nBắt đầu kiểm tra đạo văn...")
 
     start_total = time.time()
@@ -222,7 +222,7 @@ def plagiarism_check(pdf_bytes: BytesIO, is_text_pdf: bool, threshold: float = N
     print("\nĐang tải và xử lý file PDF...")
 
     start_step = time.time()
-    query_chunks = split_text_into_chunks(pdf_bytes, is_text_pdf)
+    query_chunks = split_text_into_chunks(pdf_bytes)
     total_words_in_document = sum(len(chunk.page_content.split()) for chunk in query_chunks)
     print(f"Tổng số từ trong tài liệu: {total_words_in_document}")
 
