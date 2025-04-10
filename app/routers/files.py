@@ -24,66 +24,72 @@ async def upload_file(file: UploadFile = File(...)):
         if file_ext not in ["pdf", "docx", "doc"]:
             raise HTTPException(status_code=400, detail="Unsupported file type")
 
+        file_bytes = await file.read()
         filename_without_ext = os.path.splitext(file.filename)[0]
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
-            temp_pdf_path = temp_pdf.name
+        if file_ext == "pdf":
+            is_text_pdf = check_if_text_pdf(io.BytesIO(file_bytes))
 
-            if file_ext == "pdf":
-                pdf_bytes = await file.read()
-                with open(temp_pdf_path, "wb") as temp_pdf_file:
-                    temp_pdf_file.write(pdf_bytes)
+            uploaded_files["latest_file"] = {
+                "filename": file.filename,
+                "data": file_bytes,
+                "is_text_pdf": is_text_pdf
+            }
 
-                is_text_pdf = check_if_text_pdf(temp_pdf_path)
+            metadata = extract_info_with_gemini(io.BytesIO(file_bytes), is_text_pdf)
+            return {
+                "filename": file.filename,
+                "message": "PDF saved in memory",
+                "metadata": metadata
+            }
 
-                # Lưu trạng thái PDF vào uploaded_files
-                uploaded_files["latest_file"] = {
-                    "filename": f"{filename_without_ext}.pdf",
-                    "path": temp_pdf_path,
-                    "is_text_pdf": is_text_pdf
-                }
+        docx_stream = io.BytesIO(file_bytes)
 
-            else:
-                # Xử lý file DOCX hoặc DOC
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as temp_docx:
-                    docx_temp_path = temp_docx.name
-                    with open(docx_temp_path, "wb") as temp_docx_file:
-                        temp_docx_file.write(await file.read())
+        if file_ext == "doc":
+            try:
+                doc = Document(docx_stream)
+                docx_stream = io.BytesIO()
+                doc.save(docx_stream)
+                docx_stream.seek(0)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Error converting DOC to DOCX: {str(e)}")
 
-                    try:
-                        # Chuyển đổi DOCX sang PDF
-                        subprocess.run(
-                            ["libreoffice", "--headless", "--convert-to", "pdf", "--outdir",
-                             os.path.dirname(temp_pdf_path),
-                             docx_temp_path],
-                            check=True
-                        )
-                        converted_pdf_path = docx_temp_path.replace(".docx", ".pdf")
-                        with open(converted_pdf_path, "rb") as converted_pdf:
-                            with open(temp_pdf_path, "wb") as temp_pdf_file:
-                                temp_pdf_file.write(converted_pdf.read())
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as temp_docx:
+            temp_docx.write(docx_stream.getvalue())
+            temp_docx.flush()
+            temp_docx_path = temp_docx.name
 
-                    except subprocess.CalledProcessError as e:
-                        raise HTTPException(status_code=500, detail=f"Failed to convert DOCX to PDF: {str(e)}")
-                    finally:
-                        os.remove(docx_temp_path)
-                        if os.path.exists(converted_pdf_path):
-                            os.remove(converted_pdf_path)
+        pdf_path = temp_docx_path.replace(".docx", ".pdf")
+        try:
+            subprocess.run(
+                ["libreoffice", "--headless", "--convert-to", "pdf", "--outdir", os.path.dirname(pdf_path),
+                 temp_docx_path],
+                check=True
+            )
 
-                # Lưu thông tin vào uploaded_files
-                uploaded_files["latest_file"] = {
-                    "filename": f"{filename_without_ext}.pdf",
-                    "path": temp_pdf_path,
-                    "is_text_pdf": True
-                }
+            with open(pdf_path, "rb") as pdf_file:
+                pdf_bytes = pdf_file.read()
 
-        # Trích xuất metadata từ file PDF và Gemini API
-        metadata = extract_info_with_gemini(uploaded_files["latest_file"]["path"],
-                                            uploaded_files["latest_file"]["is_text_pdf"])
+        except subprocess.CalledProcessError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to convert DOCX to PDF: {str(e)}")
+
+        finally:
+            os.remove(temp_docx_path)
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
+
+        uploaded_files["latest_file"] = {
+            "filename": f"{filename_without_ext}.pdf",
+            "data": pdf_bytes,
+            "is_text_pdf": True
+        }
+
+        is_text_pdf = True
+        metadata = extract_info_with_gemini(io.BytesIO(pdf_bytes), is_text_pdf)
 
         return {
             "filename": f"{filename_without_ext}.pdf",
-            "message": "File saved to disk, metadata extracted.",
+            "message": "Converted and saved in memory",
             "metadata": metadata
         }
 
@@ -99,15 +105,21 @@ async def check_plagiarism(
     if "latest_file" not in uploaded_files:
         raise HTTPException(status_code=404, detail="No uploaded file found")
 
-    filename = uploaded_files["latest_file"]["filename"]
-    pdf_stream = io.BytesIO(uploaded_files["latest_file"]["data"])
+    file_info = uploaded_files["latest_file"]
+    filename = file_info["filename"]
+    pdf_stream = io.BytesIO(file_info["data"])
+    is_text_pdf = file_info["is_text_pdf"]
     pdf_stream.seek(0)
+    print(f"is_text_pdf: {is_text_pdf}")
 
     threshold_value = threshold if threshold is not None else settings.SIMILARITY_THRESHOLD
 
-    result = plagiarism_check(pdf_stream, threshold=threshold_value, n=n)
+    result = plagiarism_check(pdf_stream, is_text_pdf=is_text_pdf, threshold=threshold_value, n=n)
 
-    return {"filename": filename, "result": result}
+    return {
+        "filename": filename,
+        "result": result
+    }
 
 
 @router.post("/save-file")
@@ -115,10 +127,12 @@ async def save_file():
     if "latest_file" not in uploaded_files:
         raise HTTPException(status_code=404, detail="No uploaded file in memory")
 
-    filename = uploaded_files["latest_file"]["filename"]
-    pdf_stream = io.BytesIO(uploaded_files["latest_file"]["data"])
+    file_info = uploaded_files["latest_file"]
+    filename = file_info["filename"]
+    pdf_stream = io.BytesIO(file_info["data"])
+    is_text_pdf = file_info["is_text_pdf"]
     pdf_stream.seek(0)
 
-    result = save_uploaded_pdf(pdf_stream, filename)
+    result = save_uploaded_pdf(pdf_stream, filename, is_text_pdf=is_text_pdf)
 
     return {"message": result["message"]}

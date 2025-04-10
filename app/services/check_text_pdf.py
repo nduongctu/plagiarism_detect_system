@@ -1,12 +1,15 @@
 import fitz
+import io
 
-def check_if_text_pdf(pdf_path):
+
+def check_if_text_pdf(pdf_stream: io.BytesIO) -> bool:
     try:
-        doc = fitz.open(pdf_path)
-        text = ""
+        pdf_stream.seek(0)
+        doc = fitz.open("pdf", pdf_stream.getvalue())
         for page in doc:
-            text += page.get_text("text")
-        doc.close()
-        return bool(text.strip())
-    except Exception as e:
+            text = page.get_text("text").strip()
+            if text:
+                return True
+        return False
+    except Exception:
         return False

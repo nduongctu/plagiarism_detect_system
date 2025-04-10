@@ -9,7 +9,8 @@ RUN apt-get update && \
     poppler-utils \
     libgl1 \
     libglib2.0-0 \
-    curl && \
+    curl \
+    libreoffice && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -20,7 +21,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 ENV PYTHONUNBUFFERED=1
-ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/tessdata
+ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
 ENV PATH=/usr/local/bin:$PATH
 
 COPY . .

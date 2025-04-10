@@ -1,7 +1,10 @@
 import re
 import fitz
-from app.config.settings import MIN_CHUNK_LENGTH
+import pytesseract
+from PIL import Image
 from io import BytesIO
+from pdf2image import convert_from_bytes
+from app.config.settings import MIN_CHUNK_LENGTH
 
 
 def clean_text_with_mapping(text):
@@ -30,57 +33,91 @@ def clean_text_with_mapping(text):
     return cleaned_text, mapping
 
 
-def extract_text_without_headers_footers(pdf_bytes: BytesIO, skip_pages=None):
+def extract_text_without_headers_footers(pdf_bytes: BytesIO, is_text_pdf: bool, skip_pages=None):
     if skip_pages is None:
         skip_pages = set()
 
-    doc = fitz.open("pdf", pdf_bytes.getvalue())
     pages_text = []
-    stop_page = None
 
-    for page_num in range(len(doc) - 1, -1, -1):
-        page = doc[page_num]
-        page_text = page.get_text("text").strip()
+    if is_text_pdf:
+        doc = fitz.open("pdf", pdf_bytes.getvalue())
+        stop_page = None
 
-        if re.search(r"tài liệu tham khảo", page_text, flags=re.IGNORECASE):
-            stop_page = page_num + 1
-            print(f"Dừng xử lý tại trang {stop_page} do phát hiện 'Tài liệu tham khảo'")
-            break
+        for page_num in range(len(doc) - 1, -1, -1):
+            page = doc[page_num]
+            page_text = page.get_text("text").strip()
+            if re.search(r"tài liệu tham khảo", page_text, flags=re.IGNORECASE):
+                stop_page = page_num + 1
+                print(f"Dừng xử lý tại trang {stop_page} do phát hiện 'Tài liệu tham khảo'")
+                break
 
-    for page_num, page in enumerate(doc):
-        page_index = page_num + 1
-        if page_index in skip_pages:
-            continue
+        for page_num, page in enumerate(doc):
+            page_index = page_num + 1
+            if page_index in skip_pages:
+                continue
 
-        page_rect = page.rect
-        page_height = page_rect.height
+            page_rect = page.rect
+            page_height = page_rect.height
+            header_margin = page_height * 0.08
+            footer_margin = page_height * 0.08
 
-        header_margin = page_height * 0.08
-        footer_margin = page_height * 0.08
+            main_rect = fitz.Rect(
+                page_rect.x0,
+                page_rect.y0 + header_margin,
+                page_rect.x1,
+                page_rect.y1 - footer_margin
+            )
 
-        main_rect = fitz.Rect(
-            page_rect.x0,
-            page_rect.y0 + header_margin,
-            page_rect.x1,
-            page_rect.y1 - footer_margin
-        )
+            page_text = page.get_text("text", clip=main_rect).strip()
 
-        page_text = page.get_text("text", clip=main_rect).strip()
+            if stop_page and page_index == stop_page:
+                match = re.search(r"tài liệu tham khảo", page_text, flags=re.IGNORECASE)
+                if match:
+                    page_text = page_text[:match.start()].strip()
 
-        if stop_page and page_index == stop_page:
-            match = re.search(r"tài liệu tham khảo", page_text, flags=re.IGNORECASE)
-            if match:
-                page_text = page_text[:match.start()].strip()
+            if stop_page and page_index > stop_page:
+                continue
 
-        if stop_page and page_index > stop_page:
-            continue
+            pages_text.append({
+                "page": page_index,
+                "content": page_text
+            })
 
-        pages_text.append({
-            "page": page_index,
-            "content": page_text
-        })
+        doc.close()
 
-    doc.close()
+    else:
+
+        images = convert_from_bytes(pdf_bytes.getvalue())
+
+        stop_page = None
+        for i in range(len(images) - 1, max(-1, len(images) - 3), -1):
+            img_rgb = images[i].convert("RGB")
+            text = pytesseract.image_to_string(img_rgb, lang="vie").strip()
+            if re.search(r"tài liệu tham khảo", text, flags=re.IGNORECASE):
+                stop_page = i
+                print(f"Dừng xử lý tại trang {stop_page + 1} do phát hiện 'Tài liệu tham khảo'")
+                break
+
+        for idx, img in enumerate(images):
+            page_index = idx + 1
+            if page_index in skip_pages:
+                continue
+            if stop_page is not None and idx > stop_page:
+                continue
+
+            img_rgb = img.convert("RGB")
+            text = pytesseract.image_to_string(img_rgb, lang="vie").strip()
+
+            if stop_page is not None and idx == stop_page:
+                match = re.search(r"tài liệu tham khảo", text, flags=re.IGNORECASE)
+                if match:
+                    text = text[:match.start()].strip()
+
+            pages_text.append({
+                "page": page_index,
+                "content": text
+            })
+
     return pages_text
 
 
