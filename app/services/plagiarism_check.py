@@ -57,6 +57,7 @@ def split_text_into_chunks(pdf_bytes: BytesIO, is_text_pdf: bool):
 
 def embed_texts(texts):
     model = embedding_model
+    model.eval()
     all_embeddings = []
 
     with torch.no_grad():
@@ -70,6 +71,11 @@ def embed_texts(texts):
 
 def count_words_in_text(text: str) -> int:
     return len(text.split())
+
+
+def calculate_semantic_plagiarism_rate(matches, total_words):
+    total_matched_words = sum(count_words_in_text(match["query_text"]) for match in matches)
+    return (total_matched_words / total_words) * 100 if total_words > 0 else 0
 
 
 def calculate_word_plagiarism_rate(word_plagiarism, total_words_in_document):
@@ -257,8 +263,7 @@ def plagiarism_check(pdf_bytes: BytesIO, is_text_pdf: bool, threshold: float = N
 
     word_plagiarism = check_word_plagiarism(matches, n)
 
-    unique_match_count = len(set(match["query_text"] for match in matches))
-    duplication_rate_semantic = (unique_match_count / len(query_chunks)) * 100
+    duplication_rate_semantic = calculate_semantic_plagiarism_rate(matches, total_words_in_document)
 
     duplication_rate_by_words = calculate_word_plagiarism_rate(word_plagiarism, total_words_in_document)
 
