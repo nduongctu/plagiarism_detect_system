@@ -9,7 +9,6 @@ from app.services.plagiarism_check import plagiarism_check
 from app.services.save_to_Qdrant import save_uploaded_pdf
 from app.config import settings
 from app.services.extract_info import extract_info_with_gemini
-from app.services.check_text_pdf import check_if_text_pdf
 
 router = APIRouter()
 
@@ -33,11 +32,9 @@ async def upload_file(file: UploadFile = File(...)):
                 "data": file_bytes,
             }
 
-            metadata = extract_info_with_gemini(io.BytesIO(file_bytes))
             return {
                 "filename": file.filename,
                 "message": "PDF saved in memory",
-                "metadata": metadata
             }
 
         docx_stream = io.BytesIO(file_bytes)
@@ -80,12 +77,9 @@ async def upload_file(file: UploadFile = File(...)):
             "data": pdf_bytes,
         }
 
-        metadata = extract_info_with_gemini(io.BytesIO(pdf_bytes))
-
         return {
             "filename": f"{filename_without_ext}.pdf",
             "message": "Converted and saved in memory",
-            "metadata": metadata
         }
 
     except Exception as e:
@@ -113,6 +107,23 @@ async def check_plagiarism(
         "filename": filename,
         "result": result
     }
+
+
+@router.get("/extract_info")
+async def extract_info():
+    if "latest_file" not in uploaded_files:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+
+    try:
+        pdf_stream = io.BytesIO(uploaded_files["latest_file"]["data"])
+        result = extract_info_with_gemini(pdf_stream)
+
+        if isinstance(result, str) and result.startswith("{\"error\""):
+            return JSONResponse(content=result, status_code=500)
+
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi trích xuất thông tin: {e}")
 
 
 @router.post("/save-file")
