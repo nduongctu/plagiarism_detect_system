@@ -1,87 +1,106 @@
 import os
+import fitz
 import re
 import json
-import fitz
-import pytesseract
-from PIL import Image
+from io import BytesIO
 from dotenv import load_dotenv
-from openai import OpenAI
-from app.config import settings
-from pdf2image import convert_from_bytes
+import google.generativeai as genai
 
 load_dotenv()
-
-pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
-
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY,
-)
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+genai.configure(api_key=GOOGLE_API_KEY)
 
 
 def extract_info_with_gemini(pdf_stream):
     try:
         pdf_bytes = pdf_stream.read()
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        num_pages = min(2, doc.page_count)
+
         text = ""
-        for i in range(num_pages):
+        for i in range(min(4, doc.page_count)):
             page_text = doc[i].get_text("text").strip()
             text += page_text + "\n"
-        doc.close()
-
         text = re.sub(r'\s+', ' ', text).strip()
 
-        if not text or len(text) < 15:
-            pages = convert_from_bytes(pdf_bytes, dpi=300, first_page=1, last_page=2)
-            text = ""
-            for page in pages:
-                text += pytesseract.image_to_string(page, lang="vie") + "\n"
-            text = re.sub(r'\s+', ' ', text).strip()
-    except Exception as e:
-        return f'{{"error": "Lỗi xử lý văn bản: {e}"}}'
+        model = genai.GenerativeModel("gemini-2.0-flash")
 
-    prompt = f"""
-    Phân tích văn bản sau và trích xuất thông tin theo định dạng JSON, kết quả trả về tiếng Việt.
-    Dữ liệu đầu vào:
-    {text}
+        if text and len(text) >= 15:
+            prompt = f"""
+Phân tích văn bản sau và trích xuất thông tin theo định dạng JSON, kết quả trả về tiếng Việt.
 
-    Yêu cầu đầu ra:
-    {{
-        "title": "string // Tiêu đề của bài viết, nếu có thể xác định.",
-        "author": [
-            {{
-                "name": "string // Họ và tên đầy đủ của tác giả.",
-                "gender": "string // Giới tính của tác giả, có thể dựa theo tên (male/female/None).",
-                "dob": "string // Ngày sinh của tác giả theo định dạng YYYY-MM-DD, nếu có.",
-                "email": "string // Địa chỉ email của tác giả, nếu có.",
-                "phone": "string // Số điện thoại của tác giả, nếu có.",
-                "organization": "string // Tên tổ chức (trường đại học, viện nghiên cứu, công ty,...) mà tác giả trực thuộc.",
-                "department": "string // Tên phòng ban của tác giả trong tổ chức (nếu có).",
-                "position": "string // Chức vụ của tác giả tại tổ chức (nếu có)."
-            }}
-        ],
-        "research_field": "string // Lĩnh vực nghiên cứu chính của bài viết, nếu có thể xác định."
-    }}
-    """
+Dữ liệu đầu vào:
+{text}
 
-    try:
-        response = client.chat.completions.create(
-            model="google/gemini-2.0-flash-exp:free",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        if response and response.choices:
-            response_text = response.choices[0].message.content.strip().lstrip('\ufeff')
-            response_text = re.sub(r"^```json\s*", "", response_text)
-            response_text = re.sub(r"\s*```$", "", response_text)
-            try:
-                json_data = json.loads(response_text)
-                return json_data
-            except json.JSONDecodeError as e:
-                return f'{{"error": "Lỗi JSON: {str(e)}"}}'
+Yêu cầu đầu ra:
+{{
+    "title": "string // Tên đề tài nghiên cứu hoặc sáng kiến, nếu có thể xác định.",
+    "author": [ 
+        {{
+            "name": "string // Họ và tên đầy đủ của tác giả.",
+            "gender": "string // Giới tính của tác giả, có thể dựa theo tên (male/female/None).",
+            "dob": "string // Ngày sinh của tác giả theo định dạng YYYY-MM-DD, nếu có.",
+            "email": "string // Địa chỉ email của tác giả, nếu có.",
+            "phone": "string // Số điện thoại của tác giả, nếu có.",
+            "organization": "string // Tên tổ chức/tên đơn vị (bệnh viện,...) mà tác giả trực thuộc.",
+            "department": "string // Tên khoa/phòng ban của tác giả trong tổ chức/đơn vị (nếu có).",
+            "position": "string // Chức vụ/chức danh của tác giả tại tổ chức/đơn vị (nếu có)."
+        }}
+    ],
+    "type": "string // Loại hồ sơ (chỉ trả về Sáng kiến hoặc Đề tài KH&CN, đề án khoa học).",
+    "proposal_level_city": "string // Đề nghị công nhận phạm vi ảnh hưởng : có đánh dấu ở ô Cấp thành phố(trả về true hoặc false).",
+    "research_field": "string // Lĩnh vực nghiên cứu chính của bài viết, nếu có thể xác định."
+}}
+"""
+            response = model.generate_content(prompt)
+
         else:
-            return '{"error": "Không có phản hồi từ API OpenAI."}'
+            # Tạo file PDF gồm 5 trang đầu để upload
+            new_doc = fitz.open()
+            for i in range(min(5, doc.page_count)):
+                new_doc.insert_pdf(doc, from_page=i, to_page=i)
+
+            new_pdf_stream = BytesIO()
+            new_doc.save(new_pdf_stream)
+            new_doc.close()
+            new_pdf_stream.seek(0)
+
+            uploaded_file = genai.upload_file(new_pdf_stream, mime_type="application/pdf", display_name="scan.pdf")
+
+            prompt = """
+Đây là file PDF chứa 5 trang đầu của một tài liệu scan. Hãy phân tích nội dung file và trích xuất thông tin theo định dạng JSON, kết quả trả về tiếng Việt.
+
+Yêu cầu đầu ra:
+{
+    "title": "string // Tên đề tài nghiên cứu hoặc sáng kiến, nếu có thể xác định.",
+    "author": [ 
+        {
+            "name": "string // Họ và tên đầy đủ của tác giả.",
+            "gender": "string // Giới tính của tác giả, có thể dựa theo tên (male/female/None).",
+            "dob": "string // Ngày sinh của tác giả theo định dạng YYYY-MM-DD, nếu có.",
+            "email": "string // Địa chỉ email của tác giả, nếu có.",
+            "phone": "string // Số điện thoại của tác giả, nếu có.",
+            "organization": "string // Tên tổ chức/tên đơn vị (bệnh viện,...) mà tác giả trực thuộc.",
+            "department": "string // Tên khoa/phòng ban của tác giả trong tổ chức/đơn vị (nếu có).",
+            "position": "string // Chức vụ/chức danh của tác giả tại tổ chức/đơn vị (nếu có)."
+        }
+    ],
+    "type": "string // Loại hồ sơ (chỉ trả về Sáng kiến hoặc Đề tài KH&CN, đề án khoa học).",
+    "proposal_level_city": "string // Đề nghị công nhận phạm vi ảnh hưởng : có đánh dấu ở ô Cấp thành phố(trả về true hoặc false).",
+    "research_field": "string // Lĩnh vực nghiên cứu chính của bài viết, nếu có thể xác định."
+}
+"""
+            response = model.generate_content([prompt, uploaded_file])
+
+        doc.close()
+
+        content = response.text.strip().lstrip('\ufeff')
+        content = re.sub(r"^```json\s*", "", content)
+        content = re.sub(r"\s*```$", "", content)
+
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            return {"error": f"Lỗi JSON: {str(e)}"}
+
     except Exception as e:
-        return f'{{"error": "Lỗi API: {e}"}}'
+        return {"error": f"Lỗi xử lý văn bản: {str(e)}"}
