@@ -15,5 +15,4 @@ sentence-transformers
 python-dotenv
 pytesseract
 pdf2image
-docling
 google-generativeai
