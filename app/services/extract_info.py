@@ -54,7 +54,6 @@ Yêu cầu đầu ra:
             response = model.generate_content(prompt)
 
         else:
-            # Tạo file PDF gồm 5 trang đầu để upload
             new_doc = fitz.open()
             for i in range(min(5, doc.page_count)):
                 new_doc.insert_pdf(doc, from_page=i, to_page=i)

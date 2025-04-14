@@ -7,68 +7,116 @@ from pdf2image import convert_from_bytes
 from app.config.settings import MIN_CHUNK_LENGTH
 
 
-def clean_text_with_mapping(text, title=None):
+def clean_text_with_mapping(text):
     mapping = []
-    cleaned_text = []
+    cleaned_chars = []
 
+    # 1. Nối các dòng lại với nhau trước khi làm sạch
+    text = re.sub(r"[\n\r]+", " ", text)  # Thay thế tất cả các dòng mới bằng một khoảng trắng
+
+    # Tạo mảng mapping và chuỗi cleaned_text ban đầu
     index_in_original = 0
     for char in text:
-        if char.isalnum() or char.isspace() or char == ".":
+        if char.isalnum() or char.isspace() or char in ".[]":
             mapping.append(index_in_original)
-            cleaned_text.append(char)
+            cleaned_chars.append(char)
         index_in_original += 1
+    cleaned_text = "".join(cleaned_chars)
 
-    cleaned_text = "".join(cleaned_text)
+    # 2. Xoá ngày tháng năm (viết bằng số hoặc chữ)
+    cleaned_text = re.sub(
+        r"\bngày\s+[^\s]+\s+tháng\s+[^\s]+\s+năm\s+\d{4}\b",
+        " ",
+        cleaned_text,
+        flags=re.IGNORECASE
+    )
 
-    # Xoá các chỉ mục dạng [1], [45], [12]
-    cleaned_text = re.sub(r"\[\d+\]", " ", cleaned_text)
+    # 3. Xoá các cụm "Mục tiêu nghiên cứu", "Thiết kế nghiên cứu", "Dân số chọn mẫu"
+    cleaned_text = re.sub(
+        r"\b(mục\s*tiêu\s*nghiên\s*cứu|thiết\s*kế\s*nghiên\s*cứu|dân\s*số\s*chọn\s*mẫu)\b",
+        " ",
+        cleaned_text,
+        flags=re.IGNORECASE
+    )
 
-    # Xoá ngày tháng
-    cleaned_text = re.sub(r"\bngày\s+\d{1,2}\s*tháng\s+\d{1,2}\s*năm\s+\d{4}\b", " ", cleaned_text, flags=re.IGNORECASE)
-
-    # Xoá số (gồm cả số thực)
-    cleaned_text = re.sub(r"\d+(\.\d+)?", "", cleaned_text)
-
-    # Xoá cụm "kính gửi", "sở y tế", "hội đồng..."
+    # 4. Xoá các cụm hành chính
     cleaned_text = re.sub(r"\bkính\s*gửi\b", " ", cleaned_text, flags=re.IGNORECASE)
     cleaned_text = re.sub(r"\bhội\s*đồng\s*xét\s*công\s*nhận\s*sáng\s*kiến\s*cấp\s*thành\s*phố\b", " ", cleaned_text,
                           flags=re.IGNORECASE)
     cleaned_text = re.sub(r"\bsở\s*y\s*tế\b", " ", cleaned_text, flags=re.IGNORECASE)
-    cleaned_text = re.sub(r"\bhội\s*đồng\s*xét\s*công\s*nhận\s*sở\s*y\s*tế\s*tp\s*\.?\s*hcm\b", " ", cleaned_text,
+    cleaned_text = re.sub(r"\bhội\s*đồng\s*xét\s*công\s*nhận\s*sở\s*y\s*tế\s*tp\.?\s*hcm\b", " ", cleaned_text,
                           flags=re.IGNORECASE)
+    cleaned_text = re.sub(r"\bhội\s*đồng\s*xét\s*công\s*nhận\s*sáng\s*kiến\s*tp\.?\s*hcm\b", " ", cleaned_text,
+                          flags=re.IGNORECASE)
+    cleaned_text = re.sub(r"\bBỆNH\s+VIỆN\b", " ", cleaned_text)
 
-    # Xoá dấu - hoặc chuỗi dấu -
+    # 5. Xoá dấu gạch nối và gạch dưới
     cleaned_text = re.sub(r"(?:\s*-\s*)+", " ", cleaned_text)
-
-    # Xoá dấu _
     cleaned_text = re.sub(r"_", " ", cleaned_text)
 
-    # Xoá đoạn từ "quyết định nghiệm thu" đến "thuyết minh về phạm vi ảnh hưởng"
-    cleaned_text = re.sub(
-        r"quyết\s*định\s*nghiệm\s*thu.*?thuyết\s*minh\s*về\s*phạm\s*vi\s*ảnh\s*hưởng",
-        " ",
-        cleaned_text,
-        flags=re.IGNORECASE | re.DOTALL
-    )
+    # 6. Xoá các chỉ mục dạng [số] (không có khoảng trắng)
+    cleaned_text = re.sub(r"\[\d+\]", " ", cleaned_text)
 
-    # Xoá các ký tự đặc biệt (trừ dấu chấm)
-    cleaned_text = re.sub(r"[^\w\s.]", " ", cleaned_text)
+    # 7. Xoá ký tự đặc biệt (giữ lại chữ, số và khoảng trắng)
+    cleaned_text = re.sub(r"[^\w\s]", " ", cleaned_text)
 
-    cleaned_text = re.sub(r"cộng\s*hòa\s*xã\s*hội\s*chủ\s*nghĩa\s*việt\s*nam[\s\W]*", " ", cleaned_text,
+    # 8. Xoá các cụm khẩu hiệu
+    cleaned_text = re.sub(r"\bCỘNG\s*HOÀ\s*XÃ\s*HỘI\s*CHỦ\s*NGHĨA\s*VIỆT\s*NAM\b", " ", cleaned_text,
                           flags=re.IGNORECASE)
-    cleaned_text = re.sub(r"độc\s*lập\s*tự\s*do\s*hạnh\s*phúc[\s\W]*", " ", cleaned_text, flags=re.IGNORECASE)
+    cleaned_text = re.sub(r"\bTHÀNH\s*PHÓ\s*HỎ\s*CHÍ\s*MINH\b", " ", cleaned_text, flags=re.IGNORECASE)
+    cleaned_text = re.sub(r"\bThành\s*phố\s*Hô\s*Chí\s*Minh\b", " ", cleaned_text, flags=re.IGNORECASE)
+    cleaned_text = re.sub(r"\bĐộc\s*lập\s*Tự\s*do\s*Hạnh\s*phúc\b", " ", cleaned_text, flags=re.IGNORECASE)
 
-    # Rút gọn khoảng trắng
+    # 9. Rút gọn khoảng trắng
     cleaned_text = re.sub(r"\s+", " ", cleaned_text).strip()
 
-    # Cắt text từ vị trí title (nếu có)
-    if title:
-        title_cleaned = re.sub(r"\s+", " ", title.lower().strip())
-        title_cleaned = re.sub(r"[^\w\s.]", "", title_cleaned)
+    # 10. Xoá cụm liên quan đến nghiệm thu và mô tả đề tài
+    cleaned_text = re.sub(r"\bđã\s+được\s+nghi[êe]m\s+thu\b", " ", cleaned_text, flags=re.IGNORECASE)
+    cleaned_text = re.sub(r"tên\s*đề\s*tà[i1]\s*nghiên\s*cứu", " ", cleaned_text, flags=re.IGNORECASE)
+    cleaned_text = re.sub(
+        r"mô\s*tả\s*tóm\s*tắt\s*nội\s*dung\s*của\s*đề\s*tà[i1]?\s*nghiên\s*cứu(\s*khoa\s*học)?(\s*chữ)?", " ",
+        cleaned_text, flags=re.IGNORECASE)
+    cleaned_text = re.sub(r"200\s*500\s*chữ", " ", cleaned_text)
+    cleaned_text = re.sub(r"\s+", " ", cleaned_text).strip()
 
-        index = cleaned_text.find(title_cleaned)
-        if index != -1:
-            cleaned_text = cleaned_text[index:]
+    # 11. Loại bỏ các cụm tiêu đề của sáng kiến:
+    cleaned_text = re.sub(
+        r"m[oó]\s*tả\s*t[oó]m\s*tắt\s*n[oó]i\s*dung\s*của\s*s[aá]ng\s*kiến",
+        " ",
+        cleaned_text,
+        flags=re.IGNORECASE
+    )
+    cleaned_text = re.sub(
+        r"b[oỏ]\s*cảnh\s*dẫn\s*t[óo]i\s*s[aá]ng\s*kiến",
+        " ",
+        cleaned_text,
+        flags=re.IGNORECASE
+    )
+    cleaned_text = re.sub(
+        r"\bMẪU\s+SỐ\b",
+        " ",
+        cleaned_text
+    )
+    cleaned_text = re.sub(
+        r"t[eê]n\s*s[aá]ng\s*ki[eế]n",
+        " ",
+        cleaned_text,
+        flags=re.IGNORECASE
+    )
+    cleaned_text = re.sub(
+        r"n[oộ]i\s*dung\s*s[aá]ng\s*ki[eế]n",
+        " ",
+        cleaned_text,
+        flags=re.IGNORECASE
+    )
+    cleaned_text = re.sub(
+        r"m[oô]\s*t[aả]\s*k[ỹy]\s*thu[aậ]t",
+        " ",
+        cleaned_text,
+        flags=re.IGNORECASE
+    )
+
+    cleaned_text = re.sub(r"\s+", " ", cleaned_text).strip()
 
     return cleaned_text, mapping
 
@@ -152,41 +200,52 @@ def extract_text_without_headers_footers(pdf_bytes: BytesIO, skip_pages=None):
     except Exception as e:
         print(f"Fall back OCR do : {e}")
         images = convert_from_bytes(raw_bytes, dpi=300)
-        stop_page = None
-        for i in range(len(images) - 1, max(-1, len(images) - 3), -1):
-            img_rgb = images[i].convert("RGB")
-            text = pytesseract.image_to_string(img_rgb, lang="vie").strip()
-            if re.search(r"tài liệu tham khảo", text, flags=re.IGNORECASE):
-                stop_page = i
-                print(f"Dừng xử lý tại trang {stop_page + 1} do phát hiện 'Tài liệu tham khảo'")
-                break
+        pages_text = []
+        stop_index = None
+        appendix_text = None
+        appendix_page = None
 
         for idx, img in enumerate(images):
             page_index = idx + 1
             if page_index in skip_pages:
                 continue
-            if stop_page is not None and idx > stop_page:
-                continue
 
             img_rgb = img.convert("RGB")
-
-            if idx == 0:  # Trang đầu
+            if idx == 0:
                 width, height = img_rgb.size
                 img_rgb = img_rgb.crop((0, int(height * 0.20), width, height))
 
             text = pytesseract.image_to_string(img_rgb, lang="vie").strip()
 
-            if stop_page is not None and idx == stop_page:
-                match = re.search(r"tài liệu tham khảo", text, flags=re.IGNORECASE)
+            # Kiểm tra nếu là trang cuối và chứa "PHỤ LỤC"
+            if idx == len(images) - 1 and re.search(r"PHỤ LỤC", text, flags=re.IGNORECASE):
+                appendix_text = remove_signature_tail(text)
+                appendix_page = page_index
+                continue  # chưa thêm vào, để sau xử lý
+
+            if stop_index is None:
+                match = re.search(r"TÀI LIỆU THAM KHẢO", text)
                 if match:
                     text = text[:match.start()].strip()
+                    stop_index = idx
+                    print(f"Phát hiện 'TÀI LIỆU THAM KHẢO' tại trang {page_index}, dừng sau trang này.")
+
+            if stop_index is not None and idx > stop_index:
+                continue  # Bỏ qua các trang sau khi gặp 'TÀI LIỆU THAM KHẢO'
 
             text = remove_signature_tail(text)
-
             pages_text.append({
                 "page": page_index,
                 "content": text
             })
+
+        # Sau cùng, nếu có phụ lục thì thêm vào
+        if appendix_text and appendix_page not in [p["page"] for p in pages_text]:
+            pages_text.append({
+                "page": appendix_page,
+                "content": appendix_text
+            })
+
         return pages_text
 
 
