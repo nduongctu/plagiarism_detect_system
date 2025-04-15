@@ -8,11 +8,12 @@ from app.config.settings import MIN_CHUNK_LENGTH
 
 
 def clean_text_with_mapping(text):
+    original_text = text
+    text = re.sub(r"[\n\r]+", " ", text)
+
+    # Khởi tạo mapping mới
     mapping = []
     cleaned_chars = []
-
-    # 1. Nối các dòng lại với nhau trước khi làm sạch
-    text = re.sub(r"[\n\r]+", " ", text)  # Thay thế tất cả các dòng mới bằng một khoảng trắng
 
     # Tạo mảng mapping và chuỗi cleaned_text ban đầu
     index_in_original = 0
@@ -23,102 +24,126 @@ def clean_text_with_mapping(text):
         index_in_original += 1
     cleaned_text = "".join(cleaned_chars)
 
+    # Tạo bản sao để sử dụng trong các phép thay thế
+    temp_text = cleaned_text
+
     # 2. Xoá ngày tháng năm (viết bằng số hoặc chữ)
-    cleaned_text = re.sub(
+    temp_text = re.sub(
         r"\bngày\s+[^\s]+\s+tháng\s+[^\s]+\s+năm\s+\d{4}\b",
         " ",
-        cleaned_text,
+        temp_text,
         flags=re.IGNORECASE
     )
 
     # 3. Xoá các cụm "Mục tiêu nghiên cứu", "Thiết kế nghiên cứu", "Dân số chọn mẫu"
-    cleaned_text = re.sub(
+    temp_text = re.sub(
         r"\b(mục\s*tiêu\s*nghiên\s*cứu|thiết\s*kế\s*nghiên\s*cứu|dân\s*số\s*chọn\s*mẫu)\b",
         " ",
-        cleaned_text,
+        temp_text,
         flags=re.IGNORECASE
     )
 
     # 4. Xoá các cụm hành chính
-    cleaned_text = re.sub(r"\bkính\s*gửi\b", " ", cleaned_text, flags=re.IGNORECASE)
-    cleaned_text = re.sub(r"\bhội\s*đồng\s*xét\s*công\s*nhận\s*sáng\s*kiến\s*cấp\s*thành\s*phố\b", " ", cleaned_text,
-                          flags=re.IGNORECASE)
-    cleaned_text = re.sub(r"\bsở\s*y\s*tế\b", " ", cleaned_text, flags=re.IGNORECASE)
-    cleaned_text = re.sub(r"\bhội\s*đồng\s*xét\s*công\s*nhận\s*sở\s*y\s*tế\s*tp\.?\s*hcm\b", " ", cleaned_text,
-                          flags=re.IGNORECASE)
-    cleaned_text = re.sub(r"\bhội\s*đồng\s*xét\s*công\s*nhận\s*sáng\s*kiến\s*tp\.?\s*hcm\b", " ", cleaned_text,
-                          flags=re.IGNORECASE)
-    cleaned_text = re.sub(r"\bBỆNH\s+VIỆN\b", " ", cleaned_text)
+    temp_text = re.sub(r"\bkính\s*gửi\b", " ", temp_text, flags=re.IGNORECASE)
+    temp_text = re.sub(r"\bhội\s*đồng\s*xét\s*công\s*nhận\s*sáng\s*kiến\s*cấp\s*thành\s*phố\b", " ", temp_text,
+                       flags=re.IGNORECASE)
+    temp_text = re.sub(r"\bsở\s*y\s*tế\b", " ", temp_text, flags=re.IGNORECASE)
+    temp_text = re.sub(r"\bhội\s*đồng\s*xét\s*công\s*nhận\s*sở\s*y\s*tế\s*tp\.?\s*hcm\b", " ", temp_text,
+                       flags=re.IGNORECASE)
+    temp_text = re.sub(r"\bhội\s*đồng\s*xét\s*công\s*nhận\s*sáng\s*kiến\s*tp\.?\s*hcm\b", " ", temp_text,
+                       flags=re.IGNORECASE)
+    temp_text = re.sub(r"\bBỆNH\s+VIỆN\b", " ", temp_text)
 
     # 5. Xoá dấu gạch nối và gạch dưới
-    cleaned_text = re.sub(r"(?:\s*-\s*)+", " ", cleaned_text)
-    cleaned_text = re.sub(r"_", " ", cleaned_text)
+    temp_text = re.sub(r"(?:\s*-\s*)+", " ", temp_text)
+    temp_text = re.sub(r"_", " ", temp_text)
 
     # 6. Xoá các chỉ mục dạng [số] (không có khoảng trắng)
-    cleaned_text = re.sub(r"\[\d+\]", " ", cleaned_text)
+    temp_text = re.sub(r"\[\d+\]", " ", temp_text)
 
     # 7. Xoá ký tự đặc biệt (giữ lại chữ, số và khoảng trắng)
-    cleaned_text = re.sub(r"[^\w\s]", " ", cleaned_text)
+    temp_text = re.sub(r"[^\w\s]", " ", temp_text)
 
     # 8. Xoá các cụm khẩu hiệu
-    cleaned_text = re.sub(r"\bCỘNG\s*HOÀ\s*XÃ\s*HỘI\s*CHỦ\s*NGHĨA\s*VIỆT\s*NAM\b", " ", cleaned_text,
-                          flags=re.IGNORECASE)
-    cleaned_text = re.sub(r"\bTHÀNH\s*PHÓ\s*HỎ\s*CHÍ\s*MINH\b", " ", cleaned_text, flags=re.IGNORECASE)
-    cleaned_text = re.sub(r"\bThành\s*phố\s*Hô\s*Chí\s*Minh\b", " ", cleaned_text, flags=re.IGNORECASE)
-    cleaned_text = re.sub(r"\bĐộc\s*lập\s*Tự\s*do\s*Hạnh\s*phúc\b", " ", cleaned_text, flags=re.IGNORECASE)
+    temp_text = re.sub(r"\bCỘNG\s*HOÀ\s*XÃ\s*HỘI\s*CHỦ\s*NGHĨA\s*VIỆT\s*NAM\b", " ", temp_text,
+                       flags=re.IGNORECASE)
+    temp_text = re.sub(r"\bTHÀNH\s*PHÓ\s*HỎ\s*CHÍ\s*MINH\b", " ", temp_text, flags=re.IGNORECASE)
+    temp_text = re.sub(r"\bThành\s*phố\s*Hô\s*Chí\s*Minh\b", " ", temp_text, flags=re.IGNORECASE)
+    temp_text = re.sub(r"\bĐộc\s*lập\s*Tự\s*do\s*Hạnh\s*phúc\b", " ", temp_text, flags=re.IGNORECASE)
 
-    # 9. Rút gọn khoảng trắng
-    cleaned_text = re.sub(r"\s+", " ", cleaned_text).strip()
+    # 9. Rút gọn khoảng trắng sau mỗi bước xử lý
+    temp_text = re.sub(r"\s+", " ", temp_text).strip()
 
     # 10. Xoá cụm liên quan đến nghiệm thu và mô tả đề tài
-    cleaned_text = re.sub(r"\bđã\s+được\s+nghi[êe]m\s+thu\b", " ", cleaned_text, flags=re.IGNORECASE)
-    cleaned_text = re.sub(r"tên\s*đề\s*tà[i1]\s*nghiên\s*cứu", " ", cleaned_text, flags=re.IGNORECASE)
-    cleaned_text = re.sub(
+    temp_text = re.sub(r"\bđã\s+được\s+nghi[êe]m\s+thu\b", " ", temp_text, flags=re.IGNORECASE)
+    temp_text = re.sub(r"tên\s*đề\s*tà[i1]\s*nghiên\s*cứu", " ", temp_text, flags=re.IGNORECASE)
+    temp_text = re.sub(
         r"mô\s*tả\s*tóm\s*tắt\s*nội\s*dung\s*của\s*đề\s*tà[i1]?\s*nghiên\s*cứu(\s*khoa\s*học)?(\s*chữ)?", " ",
-        cleaned_text, flags=re.IGNORECASE)
-    cleaned_text = re.sub(r"200\s*500\s*chữ", " ", cleaned_text)
-    cleaned_text = re.sub(r"\s+", " ", cleaned_text).strip()
+        temp_text, flags=re.IGNORECASE)
+    temp_text = re.sub(r"200\s*500\s*chữ", " ", temp_text)
 
     # 11. Loại bỏ các cụm tiêu đề của sáng kiến:
-    cleaned_text = re.sub(
+    temp_text = re.sub(
         r"m[oó]\s*tả\s*t[oó]m\s*tắt\s*n[oó]i\s*dung\s*của\s*s[aá]ng\s*kiến",
         " ",
-        cleaned_text,
+        temp_text,
         flags=re.IGNORECASE
     )
-    cleaned_text = re.sub(
+    temp_text = re.sub(
         r"b[oỏ]\s*cảnh\s*dẫn\s*t[óo]i\s*s[aá]ng\s*kiến",
         " ",
-        cleaned_text,
+        temp_text,
         flags=re.IGNORECASE
     )
-    cleaned_text = re.sub(
+    temp_text = re.sub(
         r"\bMẪU\s+SỐ\b",
         " ",
-        cleaned_text
+        temp_text
     )
-    cleaned_text = re.sub(
+    temp_text = re.sub(
         r"t[eê]n\s*s[aá]ng\s*ki[eế]n",
         " ",
-        cleaned_text,
+        temp_text,
         flags=re.IGNORECASE
     )
-    cleaned_text = re.sub(
+    temp_text = re.sub(
         r"n[oộ]i\s*dung\s*s[aá]ng\s*ki[eế]n",
         " ",
-        cleaned_text,
+        temp_text,
         flags=re.IGNORECASE
     )
-    cleaned_text = re.sub(
+    temp_text = re.sub(
         r"m[oô]\s*t[aả]\s*k[ỹy]\s*thu[aậ]t",
         " ",
-        cleaned_text,
+        temp_text,
         flags=re.IGNORECASE
     )
 
-    cleaned_text = re.sub(r"\s+", " ", cleaned_text).strip()
+    # Cuối cùng rút gọn khoảng trắng
+    temp_text = re.sub(r"\s+", " ", temp_text).strip()
 
-    return cleaned_text, mapping
+    return temp_text, mapping
+
+
+def normalize_text(text, preserve_length=False):
+    if preserve_length:
+        # Thay thế các ký tự đặc biệt bằng khoảng trắng, giữ nguyên độ dài
+        text = text.replace("\xa0", " ")  # No-break space
+        text = text.replace("\u200b", " ")  # Zero-width space
+        text = text.replace("\u202f", " ")  # Narrow no-break space
+        text = text.replace("\n", " ")  # Line feed
+        text = text.replace("\r", " ")  # Carriage return
+    else:
+        # Loại bỏ các ký tự đặc biệt, có thể thay đổi độ dài
+        text = text.replace("\xa0", " ")
+        text = text.replace("\u200b", "")  # Loại bỏ hoàn toàn zero-width space
+        text = text.replace("\u202f", " ")
+        text = text.replace("\n", " ")
+        text = text.replace("\r", " ")
+
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text
 
 
 def remove_signature_tail(pages_text: list) -> list:
@@ -132,12 +157,20 @@ def remove_signature_tail(pages_text: list) -> list:
     stop_pattern = r"TÓM\s*TẮT"
 
     # Kết hợp nội dung của tất cả các trang thành một chuỗi để kiểm tra
-    combined_text = " ".join(p["content"] for p in pages_text)
-    combined_text_norm = normalize_text(combined_text)
+    # Dùng preserve_length=True để giữ nguyên độ dài khi tính toán vị trí
+    page_lengths = []
+    normalized_contents = []
+
+    for p in pages_text:
+        normalized = normalize_text(p["content"], preserve_length=True)
+        normalized_contents.append(normalized)
+        page_lengths.append(len(normalized))
+
+    combined_text = " ".join(normalized_contents)
 
     start_idx = None
     for pattern in patterns:
-        match = re.search(pattern, combined_text_norm, flags=re.IGNORECASE)
+        match = re.search(pattern, combined_text, flags=re.IGNORECASE)
         if match:
             start_idx = match.start()
             break
@@ -145,39 +178,61 @@ def remove_signature_tail(pages_text: list) -> list:
     if start_idx is None:
         return pages_text  # Không có văn bản cần xóa, trả về kết quả ban đầu
 
-    last_page_content = normalize_text(pages_text[-1]["content"])
-    last_page_start = len(normalize_text(" ".join(p["content"] for p in pages_text[:-1])))
+    # Xác định vị trí bắt đầu của trang cuối cùng
+    last_page_start = sum(page_lengths[:-1]) + (len(pages_text) - 1)  # Cộng thêm số khoảng trắng giữa các trang
 
     # Xử lý khi mẫu xác nhận được tìm thấy
     if start_idx >= last_page_start:
         # Nếu mẫu tìm thấy trên trang cuối, cắt từ vị trí này trở đi
-        end_idx = len(combined_text_norm)
+        end_idx = len(combined_text)
     else:
         # Nếu mẫu tìm thấy ở giữa các trang, tìm đến "TÓM TẮT"
-        stop_match = re.search(stop_pattern, combined_text_norm[start_idx:], flags=re.IGNORECASE)
+        stop_match = re.search(stop_pattern, combined_text[start_idx:], flags=re.IGNORECASE)
         if stop_match:
             end_idx = start_idx + stop_match.start()
         else:
-            end_idx = len(combined_text_norm)
+            end_idx = len(combined_text)
 
-    # Cắt nội dung đã lọc
-    cleaned_text = combined_text_norm[:start_idx] + combined_text_norm[end_idx:]
+    # Cắt nội dung đã lọc, giữ lại phần trước start_idx
+    cleaned_text = combined_text[:start_idx]
 
-    # Phân trang lại với việc giữ lại số trang và nội dung đã lọc
+    # Nếu có phần kết thúc (sau end_idx), thêm vào
+    if end_idx < len(combined_text):
+        cleaned_text += combined_text[end_idx:]
+
+    # Phân trang lại với việc giữ lại số trang
     result_pages = []
     current_pos = 0
-    for p in pages_text:
-        # Lấy độ dài của nội dung trang hiện tại đã chuẩn hóa
-        length = len(normalize_text(p["content"]))
-        segment = cleaned_text[current_pos:current_pos + length].strip()
+    space_pos = 0  # Vị trí của khoảng trắng giữa các trang
 
-        # Đảm bảo số trang vẫn được giữ lại trong kết quả
+    for i, p in enumerate(pages_text):
+        if i > 0:
+            space_pos += 1  # Mỗi lần chuyển trang, thêm 1 cho khoảng trắng giữa các trang
+
+        # Tính toán vị trí hiện tại
+        if current_pos >= len(cleaned_text):
+            # Nếu đã hết nội dung làm sạch, thêm trang trống
+            result_pages.append({
+                "page": p["page"],
+                "content": ""
+            })
+            continue
+
+        # Tính độ dài tối đa có thể lấy từ cleaned_text
+        page_length = page_lengths[i]
+        end_pos = min(current_pos + page_length, len(cleaned_text))
+
+        # Lấy nội dung trang từ văn bản đã làm sạch
+        segment = cleaned_text[current_pos:end_pos].strip()
+
+        # Thêm vào kết quả
         result_pages.append({
             "page": p["page"],
             "content": segment
         })
 
-        current_pos += length
+        # Cập nhật vị trí hiện tại cho trang tiếp theo
+        current_pos = end_pos
 
     return result_pages
 
@@ -186,125 +241,89 @@ def extract_main_text_from_pdf(pdf_bytes: BytesIO, skip_pages=None):
     if skip_pages is None:
         skip_pages = set()
 
-    pages_text = []
     raw_bytes = pdf_bytes.getvalue()
+    text_blocks = []
 
     try:
         doc = fitz.open("pdf", raw_bytes)
-        test_text = ""
-        for i in range(min(2, len(doc))):
-            test_text += doc[i].get_text("text").strip() + " "
+        test_text = " ".join(doc[i].get_text("text").strip() for i in range(min(2, len(doc))))
         test_text = re.sub(r'\s+', ' ', test_text).strip()
 
-        if test_text and len(test_text) >= 15:
-            stop_page = None
-            for page_num in range(len(doc) - 1, -1, -1):
-                page_text = doc[page_num].get_text("text").strip()
-                if re.search(r"tài liệu tham khảo", page_text, flags=re.IGNORECASE):
-                    stop_page = page_num + 1
-                    print(f"Dừng xử lý tại trang {stop_page} do phát hiện 'Tài liệu tham khảo'")
-                    break
+        if not test_text or len(test_text) < 15:
+            raise Exception("Không phát hiện đủ văn bản, chuyển qua OCR")
 
-            for page_num, page in enumerate(doc):
-                page_index = page_num + 1
-                if page_index in skip_pages:
-                    continue
+        stop_page = None
+        for i in reversed(range(len(doc))):
+            if re.search(r"tài liệu tham khảo", doc[i].get_text("text"), flags=re.IGNORECASE):
+                stop_page = i + 1
+                print(f"Dừng xử lý tại trang {stop_page} do phát hiện 'Tài liệu tham khảo'")
+                break
 
-                page_rect = page.rect
-                page_height = page_rect.height
+        for i, page in enumerate(doc):
+            page_index = i + 1
+            if page_index in skip_pages:
+                continue
 
-                if page_num == 0:
-                    header_margin = page_height * 0.20
-                else:
-                    header_margin = page_height * 0.02
+            height = page.rect.height
+            header_margin = height * (0.20 if i == 0 else 0.02)
+            footer_margin = height * 0.02
+            main_rect = fitz.Rect(page.rect.x0, page.rect.y0 + header_margin,
+                                  page.rect.x1, page.rect.y1 - footer_margin)
 
-                footer_margin = page_height * 0.02
-
-                main_rect = fitz.Rect(
-                    page_rect.x0,
-                    page_rect.y0 + header_margin,
-                    page_rect.x1,
-                    page_rect.y1 - footer_margin
-                )
-
-                page_text = page.get_text("text", clip=main_rect).strip()
-
-                if stop_page and page_index == stop_page:
+            page_text = page.get_text("text", clip=main_rect).strip()
+            if stop_page:
+                if page_index == stop_page:
                     match = re.search(r"tài liệu tham khảo", page_text, flags=re.IGNORECASE)
                     if match:
                         page_text = page_text[:match.start()].strip()
-
-                if stop_page and page_index > stop_page:
+                elif page_index > stop_page:
                     continue
 
-                # Thêm vào danh sách trước khi xử lý xóa chữ ký
-                pages_text.append({
-                    "page": page_index,
-                    "content": page_text
-                })
-            doc.close()
+            text_blocks.append({"page": page_index, "content": page_text})
 
-            # Xử lý xóa chữ ký và phần tài liệu không liên quan
-            pages_text = remove_signature_tail(pages_text)
-            pages_text = remove_irrelevant_section(pages_text)
-            return pages_text
-        else:
-            doc.close()
-            raise Exception("Không phát hiện đủ văn bản, chuyển qua OCR")
+        doc.close()
+
     except Exception as e:
-        print(f"Fall back OCR do : {e}")
+        print(f"Fall back OCR do: {e}")
         images = convert_from_bytes(raw_bytes, dpi=300)
-        pages_text = []
         stop_index = None
         appendix_text = None
         appendix_page = None
 
-        for idx, img in enumerate(images):
-            page_index = idx + 1
+        for i, img in enumerate(images):
+            page_index = i + 1
             if page_index in skip_pages:
                 continue
 
-            img_rgb = img.convert("RGB")
-            if idx == 0:
-                width, height = img_rgb.size
-                img_rgb = img_rgb.crop((0, int(height * 0.20), width, height))
+            if i == 0:
+                width, height = img.size
+                img = img.crop((0, int(height * 0.20), width, height))
 
-            text = pytesseract.image_to_string(img_rgb, lang="vie").strip()
+            text = pytesseract.image_to_string(img.convert("RGB"), lang="vie").strip()
 
-            # Kiểm tra nếu là trang cuối và chứa "PHỤ LỤC"
-            if idx == len(images) - 1 and re.search(r"PHỤ LỤC", text, flags=re.IGNORECASE):
-                # Tạo một dictionary cho appendix_text thay vì string
+            if i == len(images) - 1 and re.search(r"PHỤ LỤC", text, flags=re.IGNORECASE):
                 appendix_text = text
                 appendix_page = page_index
-                continue  # chưa thêm vào, để sau xử lý
+                continue
 
             if stop_index is None:
-                match = re.search(r"TÀI LIỆU THAM KHẢO", text)
+                match = re.search(r"TÀI LIỆU THAM KHẢO", text, flags=re.IGNORECASE)
                 if match:
                     text = text[:match.start()].strip()
-                    stop_index = idx
+                    stop_index = i
                     print(f"Phát hiện 'TÀI LIỆU THAM KHẢO' tại trang {page_index}, dừng sau trang này.")
 
-            if stop_index is not None and idx > stop_index:
-                continue  # Bỏ qua các trang sau khi gặp 'TÀI LIỆU THAM KHẢO'
+            if stop_index is not None and i > stop_index:
+                continue
 
-            # Thêm vào danh sách trang
-            pages_text.append({
-                "page": page_index,
-                "content": text
-            })
+            text_blocks.append({"page": page_index, "content": text})
 
-        # Sau cùng, nếu có phụ lục thì thêm vào
-        if appendix_text and appendix_page not in [p["page"] for p in pages_text]:
-            pages_text.append({
-                "page": appendix_page,
-                "content": appendix_text
-            })
+        if appendix_text and appendix_page not in [b["page"] for b in text_blocks]:
+            text_blocks.append({"page": appendix_page, "content": appendix_text})
 
-        # Xử lý xóa chữ ký và phần tài liệu không liên quan
-        pages_text = remove_signature_tail(pages_text)
-        pages_text = remove_irrelevant_section(pages_text)
-        return pages_text
+    text_blocks = remove_signature_tail(text_blocks)
+    text_blocks = remove_irrelevant_section(text_blocks)
+    return text_blocks
 
 
 def process_chunks(chunks, metadata_list, min_chunk_length=None):
@@ -315,6 +334,12 @@ def process_chunks(chunks, metadata_list, min_chunk_length=None):
         min_chunk_length = MIN_CHUNK_LENGTH
 
     for chunk, metadata in zip(chunks, metadata_list):
+        # Kiểm tra chất lượng chunk trước khi xử lý
+        chunk = chunk.strip()
+
+        if not chunk:  # Bỏ qua các chunk rỗng
+            continue
+
         if processed_chunks and len(chunk) < min_chunk_length:
             processed_chunks[-1] += " " + chunk
             processed_metadata[-1]["end"] = metadata["end"]
@@ -332,46 +357,63 @@ def remove_irrelevant_section(pages_text):
     ]
     end_pattern = r"Thuyết\s*minh\s*về\s*phạm\s*vi\s*ảnh\s*hưởng"
 
-    start_idx = None
-    end_idx = None
-    combined_text = " ".join(p["content"] for p in pages_text)
-    combined_text_norm = normalize_text(combined_text)
+    # Kết hợp nội dung với bảo tồn độ dài để xác định vị trí chính xác
+    page_lengths = []
+    normalized_contents = []
 
+    for p in pages_text:
+        normalized = normalize_text(p["content"], preserve_length=True)
+        normalized_contents.append(normalized)
+        page_lengths.append(len(normalized))
+
+    combined_text = " ".join(normalized_contents)
+
+    start_idx = None
     for pattern in start_patterns:
-        match = re.search(pattern, combined_text_norm, flags=re.IGNORECASE)
+        match = re.search(pattern, combined_text, flags=re.IGNORECASE)
         if match:
             start_idx = match.start()
             break
 
+    end_idx = None
     # Kiểm tra phần kết thúc
     if start_idx is not None:
-        end_match = re.search(end_pattern, combined_text_norm[start_idx:], flags=re.IGNORECASE)
+        end_match = re.search(end_pattern, combined_text[start_idx:], flags=re.IGNORECASE)
         if end_match:
             end_idx = start_idx + end_match.end()
 
     if start_idx is not None and end_idx is not None:
-        cleaned_text = combined_text_norm[:start_idx] + combined_text_norm[end_idx:]
+        # Cắt nội dung đã lọc, giữ lại phần trước start_idx và sau end_idx
+        cleaned_text = combined_text[:start_idx] + combined_text[end_idx:]
+
+        # Phân trang lại với việc giữ lại số trang
         result_pages = []
         current_pos = 0
-        for p in pages_text:
-            length = len(normalize_text(p["content"]))
-            segment = cleaned_text[current_pos:current_pos + length].strip()
+        space_pos = 0
+
+        for i, p in enumerate(pages_text):
+            if i > 0:
+                space_pos += 1
+
+            if current_pos >= len(cleaned_text):
+                result_pages.append({
+                    "page": p["page"],
+                    "content": ""
+                })
+                continue
+
+            page_length = page_lengths[i]
+            end_pos = min(current_pos + page_length, len(cleaned_text))
+
+            segment = cleaned_text[current_pos:end_pos].strip()
+
             result_pages.append({
                 "page": p["page"],
                 "content": segment
             })
-            current_pos += length
+
+            current_pos = end_pos
+
         return result_pages
 
     return pages_text
-
-
-def normalize_text(text):
-    return (
-        text.replace("\xa0", " ")
-        .replace("\u200b", "")
-        .replace("\u202f", " ")
-        .replace("\n", " ")
-        .replace("\r", " ")
-        .strip()
-    )
