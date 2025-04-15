@@ -5,7 +5,7 @@ from app.config import settings
 from qdrant_client import QdrantClient, models
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from app.utils.file_utils import clean_text_with_mapping, extract_text_without_headers_footers, process_chunks
+from app.utils.file_utils import clean_text_with_mapping, extract_main_text_from_pdf, process_chunks
 from app.services.save_to_Qdrant import embedding_model
 import re
 from app.config import settings
@@ -16,7 +16,7 @@ DEVICE = settings.DEVICE
 def split_text_into_chunks(pdf_bytes: BytesIO):
     start_time = time.time()
 
-    pages_content = extract_text_without_headers_footers(pdf_bytes, skip_pages={0})
+    pages_content = extract_main_text_from_pdf(pdf_bytes, skip_pages={0})
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.CHUNK_SIZE,
         chunk_overlap=settings.CHUNK_OVERLAP,
