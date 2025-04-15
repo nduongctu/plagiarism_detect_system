@@ -1,5 +1,7 @@
 import re
 import fitz
+import easyocr
+import numpy as np
 import pytesseract
 from PIL import Image
 from io import BytesIO
@@ -45,8 +47,12 @@ def clean_text_with_mapping(text):
 
     # 4. Xoá các cụm hành chính
     temp_text = re.sub(r"\bkính\s*gửi\b", " ", temp_text, flags=re.IGNORECASE)
-    temp_text = re.sub(r"\bhội\s*đồng\s*xét\s*công\s*nhận\s*sáng\s*kiến\s*cấp\s*thành\s*phố\b", " ", temp_text,
-                       flags=re.IGNORECASE)
+    temp_text = re.sub(
+        r"\bhội\s*đồng\s*xét\s*công\s*nhận\s*sáng\s*kiến\s*cấp\s*thành\s*phố\b",
+        " ",
+        temp_text,
+        flags=re.IGNORECASE
+    )
     temp_text = re.sub(r"\bsở\s*y\s*tế\b", " ", temp_text, flags=re.IGNORECASE)
     temp_text = re.sub(r"\bhội\s*đồng\s*xét\s*công\s*nhận\s*sở\s*y\s*tế\s*tp\.?\s*hcm\b", " ", temp_text,
                        flags=re.IGNORECASE)
@@ -84,13 +90,13 @@ def clean_text_with_mapping(text):
 
     # 11. Loại bỏ các cụm tiêu đề của sáng kiến:
     temp_text = re.sub(
-        r"m[oó]\s*tả\s*t[oó]m\s*tắt\s*n[oó]i\s*dung\s*của\s*s[aá]ng\s*kiến",
+        r"m[\s\W_]*[ôoó][\s\W_]*t[\s\W_]*[ảaá][\s\W_]*t[\s\W_]*[óoô][\s\W_]*m[\s\W_]*t[\s\W_]*[ắaăạ][\s\W_]*t[\s\W_]*n[\s\W_]*[ộoó][\s\W_]*i[\s\W_]*d[\s\W_]*[uư][\s\W_]*n[\s\W_]*[gq][\s\W_]*c[\s\W_]*[ủuư][\s\W_]*a[\s\W_]*s[\s\W_]*[áa][\s\W_]*n[\s\W_]*[gq][\s\W_]*k[\s\W_]*[iíì][\s\W_]*[êeế][\s\W_]*[nñ]",
         " ",
         temp_text,
         flags=re.IGNORECASE
     )
     temp_text = re.sub(
-        r"b[oỏ]\s*cảnh\s*dẫn\s*t[óo]i\s*s[aá]ng\s*kiến",
+        r"b[\s\W_]*[ôoố][\s\W_]*[iíì][\s\W_]*c[\s\W_]*[ảaá][\s\W_]*n[\s\W_]*h[\s\W_]*d[\s\W_]*[ẫăãâầẩẫ][\s\W_]*n[\s\W_]*t[\s\W_]*[ớơờở][\s\W_]*i[\s\W_]*s[\s\W_]*[áa][\s\W_]*n[\s\W_]*[gq][\s\W_]*k[\s\W_]*[iíì][\s\W_]*[êeế][\s\W_]*[nñ]",
         " ",
         temp_text,
         flags=re.IGNORECASE
@@ -245,6 +251,7 @@ def extract_main_text_from_pdf(pdf_bytes: BytesIO, skip_pages=None):
     text_blocks = []
 
     try:
+        # Thử xử lý với PyMuPDF (fitz) trước
         doc = fitz.open("pdf", raw_bytes)
         test_text = " ".join(doc[i].get_text("text").strip() for i in range(min(2, len(doc))))
         test_text = re.sub(r'\s+', ' ', test_text).strip()
@@ -285,42 +292,76 @@ def extract_main_text_from_pdf(pdf_bytes: BytesIO, skip_pages=None):
 
     except Exception as e:
         print(f"Fall back OCR do: {e}")
-        images = convert_from_bytes(raw_bytes, dpi=300)
+
+        images = convert_from_bytes(raw_bytes, dpi=350)
+
+        use_gpu = False
+        reader = easyocr.Reader(['vi', 'en'], gpu=True)
+
         stop_index = None
         appendix_text = None
         appendix_page = None
 
-        for i, img in enumerate(images):
-            page_index = i + 1
-            if page_index in skip_pages:
-                continue
+        batch_size = 5
+        for batch_start in range(0, len(images), batch_size):
+            batch_end = min(batch_start + batch_size, len(images))
+            batch_images = images[batch_start:batch_end]
 
-            if i == 0:
-                width, height = img.size
-                img = img.crop((0, int(height * 0.20), width, height))
+            for batch_idx, img in enumerate(batch_images):
+                i = batch_start + batch_idx
+                page_index = i + 1
+                if page_index in skip_pages:
+                    continue
 
-            text = pytesseract.image_to_string(img.convert("RGB"), lang="vie").strip()
+                # Xử lý trang đầu tiên
+                if i == 0:
+                    width, height = img.size
+                    img = img.crop((0, int(height * 0.20), width, height))
 
-            if i == len(images) - 1 and re.search(r"PHỤ LỤC", text, flags=re.IGNORECASE):
-                appendix_text = text
-                appendix_page = page_index
-                continue
+                img = img.resize((int(img.width * 0.95), int(img.height * 0.95)), Image.LANCZOS)
 
-            if stop_index is None:
-                match = re.search(r"TÀI LIỆU THAM KHẢO", text, flags=re.IGNORECASE)
-                if match:
-                    text = text[:match.start()].strip()
-                    stop_index = i
-                    print(f"Phát hiện 'TÀI LIỆU THAM KHẢO' tại trang {page_index}, dừng sau trang này.")
+                img_array = np.array(img)
 
-            if stop_index is not None and i > stop_index:
-                continue
+                # Giải phóng bộ nhớ
+                del img
 
-            text_blocks.append({"page": page_index, "content": text})
+                text = reader.readtext(img_array, detail=0, paragraph=True)
 
+                # Giải phóng bộ nhớ
+                del img_array
+
+                text = " ".join(text).strip()
+
+                # Kiểm tra nếu là trang cuối và chứa "PHỤ LỤC"
+                if i == len(images) - 1 and re.search(r"PHỤ LỤC", text, flags=re.IGNORECASE):
+                    appendix_text = text
+                    appendix_page = page_index
+                    continue
+
+                if stop_index is None:
+                    match = re.search(r"TÀI LIỆU THAM KHẢO", text, flags=re.IGNORECASE)
+                    if match:
+                        text = text[:match.start()].strip()
+                        stop_index = i
+                        print(f"Phát hiện 'TÀI LIỆU THAM KHẢO' tại trang {page_index}, dừng sau trang này.")
+
+                if stop_index is not None and i > stop_index:
+                    continue
+
+                text_blocks.append({"page": page_index, "content": text})
+
+            # Gọi garbage collector để giải phóng bộ nhớ sau mỗi batch
+            import gc
+            gc.collect()
+            if use_gpu:
+                import torch
+                torch.cuda.empty_cache()  # Xóa bộ nhớ GPU nếu sử dụng
+
+        # Sau cùng, nếu có phụ lục thì thêm vào
         if appendix_text and appendix_page not in [b["page"] for b in text_blocks]:
             text_blocks.append({"page": appendix_page, "content": appendix_text})
 
+    # Xử lý xóa chữ ký và phần tài liệu không liên quan
     text_blocks = remove_signature_tail(text_blocks)
     text_blocks = remove_irrelevant_section(text_blocks)
     return text_blocks

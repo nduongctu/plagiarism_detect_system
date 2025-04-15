@@ -8,6 +8,15 @@ services:
       - qdrant
     environment:
       - QDRANT_HOST=http://qdrant:6333
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+    volumes:
+      - easyocr_models:/root/.EasyOCR
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -20,3 +29,4 @@ services:
 volumes:
   qdrant_data_v1:
     external: true
+  easyocr_models:
