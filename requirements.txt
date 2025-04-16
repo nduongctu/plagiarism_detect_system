@@ -16,6 +16,4 @@ python-dotenv
 pytesseract
 pdf2image
 google-generativeai
-paddlepaddle
-paddleocr
 easyocr

@@ -67,8 +67,10 @@ def clean_text_with_mapping(text):
     # 6. Xoá các chỉ mục dạng [số] (không có khoảng trắng)
     temp_text = re.sub(r"\[\d+\]", " ", temp_text)
 
-    # 7. Xoá ký tự đặc biệt (giữ lại chữ, số và khoảng trắng)
-    temp_text = re.sub(r"[^\w\s]", " ", temp_text)
+    # 7. Xoá ký tự đặc biệt
+    temp_text = re.sub(r"(\d)[,.](\d)", r"\1#DECIMAL#\2", temp_text)  # Thay thế tạm thời dấu thập phân
+    temp_text = re.sub(r"[^\w\s#%]", " ", temp_text)  # Xóa các ký tự đặc biệt khác
+    temp_text = re.sub(r"#DECIMAL#", ".", temp_text)  # Khôi phục dấu chấm
 
     # 8. Xoá các cụm khẩu hiệu
     temp_text = re.sub(r"\bCỘNG\s*HOÀ\s*XÃ\s*HỘI\s*CHỦ\s*NGHĨA\s*VIỆT\s*NAM\b", " ", temp_text,
@@ -251,7 +253,6 @@ def extract_main_text_from_pdf(pdf_bytes: BytesIO, skip_pages=None):
     text_blocks = []
 
     try:
-        # Thử xử lý với PyMuPDF (fitz) trước
         doc = fitz.open("pdf", raw_bytes)
         test_text = " ".join(doc[i].get_text("text").strip() for i in range(min(2, len(doc))))
         test_text = re.sub(r'\s+', ' ', test_text).strip()
@@ -295,73 +296,55 @@ def extract_main_text_from_pdf(pdf_bytes: BytesIO, skip_pages=None):
 
         images = convert_from_bytes(raw_bytes, dpi=350)
 
-        use_gpu = False
-        reader = easyocr.Reader(['vi', 'en'], gpu=True)
+        reader = easyocr.Reader(['vi'], gpu=True)
 
         stop_index = None
         appendix_text = None
         appendix_page = None
+        text_blocks = []
 
-        batch_size = 5
-        for batch_start in range(0, len(images), batch_size):
-            batch_end = min(batch_start + batch_size, len(images))
-            batch_images = images[batch_start:batch_end]
+        for i, img in enumerate(images):
+            page_index = i + 1
+            if page_index in skip_pages:
+                continue
 
-            for batch_idx, img in enumerate(batch_images):
-                i = batch_start + batch_idx
-                page_index = i + 1
-                if page_index in skip_pages:
-                    continue
+            if i == 0:
+                width, height = img.size
+                img = img.crop((0, int(height * 0.20), width, height))
 
-                # Xử lý trang đầu tiên
-                if i == 0:
-                    width, height = img.size
-                    img = img.crop((0, int(height * 0.20), width, height))
+            img = img.resize((int(img.width * 2000 / max(img.size)), int(img.height * 2000 / max(img.size))),
+                             Image.Resampling.LANCZOS
+                             )
 
-                img = img.resize((int(img.width * 0.95), int(img.height * 0.95)), Image.LANCZOS)
+            img_array = np.array(img)
+            del img
 
-                img_array = np.array(img)
+            text = reader.readtext(img_array, detail=0, paragraph=True, batch_size=15)
 
-                # Giải phóng bộ nhớ
-                del img
+            del img_array
 
-                text = reader.readtext(img_array, detail=0, paragraph=True)
+            text = " ".join(text).strip()
 
-                # Giải phóng bộ nhớ
-                del img_array
+            if i == len(images) - 1 and re.search(r"PHỤ LỤC", text, flags=re.IGNORECASE):
+                appendix_text = text
+                appendix_page = page_index
+                continue
 
-                text = " ".join(text).strip()
+            if stop_index is None:
+                match = re.search(r"TÀI LIỆU THAM KHẢO", text, flags=re.IGNORECASE)
+                if match:
+                    text = text[:match.start()].strip()
+                    stop_index = i
+                    print(f"Phát hiện 'TÀI LIỆU THAM KHẢO' tại trang {page_index}, dừng sau trang này.")
 
-                # Kiểm tra nếu là trang cuối và chứa "PHỤ LỤC"
-                if i == len(images) - 1 and re.search(r"PHỤ LỤC", text, flags=re.IGNORECASE):
-                    appendix_text = text
-                    appendix_page = page_index
-                    continue
+            if stop_index is not None and i > stop_index:
+                continue
 
-                if stop_index is None:
-                    match = re.search(r"TÀI LIỆU THAM KHẢO", text, flags=re.IGNORECASE)
-                    if match:
-                        text = text[:match.start()].strip()
-                        stop_index = i
-                        print(f"Phát hiện 'TÀI LIỆU THAM KHẢO' tại trang {page_index}, dừng sau trang này.")
+            text_blocks.append({"page": page_index, "content": text})
 
-                if stop_index is not None and i > stop_index:
-                    continue
-
-                text_blocks.append({"page": page_index, "content": text})
-
-            # Gọi garbage collector để giải phóng bộ nhớ sau mỗi batch
-            import gc
-            gc.collect()
-            if use_gpu:
-                import torch
-                torch.cuda.empty_cache()  # Xóa bộ nhớ GPU nếu sử dụng
-
-        # Sau cùng, nếu có phụ lục thì thêm vào
         if appendix_text and appendix_page not in [b["page"] for b in text_blocks]:
             text_blocks.append({"page": appendix_page, "content": appendix_text})
 
-    # Xử lý xóa chữ ký và phần tài liệu không liên quan
     text_blocks = remove_signature_tail(text_blocks)
     text_blocks = remove_irrelevant_section(text_blocks)
     return text_blocks
