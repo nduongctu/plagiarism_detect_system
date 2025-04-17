@@ -17,3 +17,4 @@ pytesseract
 pdf2image
 google-generativeai
 easyocr
+timm
