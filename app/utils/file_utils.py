@@ -1,12 +1,20 @@
 import re
+import cv2
 import fitz
+import difflib
 import easyocr
 import numpy as np
-import pytesseract
-from PIL import Image
+from PIL import Image, ImageOps
 from io import BytesIO
+from doclayout_yolo import YOLOv10
 from pdf2image import convert_from_bytes
 from app.config.settings import MIN_CHUNK_LENGTH
+from app.utils.extract_text_table import *
+from huggingface_hub import hf_hub_download
+
+model_path = hf_hub_download(repo_id="juliozhao/DocLayout-YOLO-DocStructBench",
+                             filename="doclayout_yolo_docstructbench_imgsz1024.pt")
+model = YOLOv10(model_path)
 
 
 def clean_text_with_mapping(text):
@@ -68,9 +76,9 @@ def clean_text_with_mapping(text):
     temp_text = re.sub(r"\[\d+\]", " ", temp_text)
 
     # 7. Xoá ký tự đặc biệt
-    temp_text = re.sub(r"(\d)[,.](\d)", r"\1#DECIMAL#\2", temp_text)  # Thay thế tạm thời dấu thập phân
-    temp_text = re.sub(r"[^\w\s#%]", " ", temp_text)  # Xóa các ký tự đặc biệt khác
-    temp_text = re.sub(r"#DECIMAL#", ".", temp_text)  # Khôi phục dấu chấm
+    temp_text = re.sub(r"(\d)[,.](\d)", r"\1#DECIMAL#\2", temp_text)
+    temp_text = re.sub(r"[^\w\s#%]", " ", temp_text)
+    temp_text = re.sub(r"#DECIMAL#", ".", temp_text)
 
     # 8. Xoá các cụm khẩu hiệu
     temp_text = re.sub(r"\bCỘNG\s*HOÀ\s*XÃ\s*HỘI\s*CHỦ\s*NGHĨA\s*VIỆT\s*NAM\b", " ", temp_text,
@@ -98,7 +106,7 @@ def clean_text_with_mapping(text):
         flags=re.IGNORECASE
     )
     temp_text = re.sub(
-        r"b[\s\W_]*[ôoố][\s\W_]*[iíì][\s\W_]*c[\s\W_]*[ảaá][\s\W_]*n[\s\W_]*h[\s\W_]*d[\s\W_]*[ẫăãâầẩẫ][\s\W_]*n[\s\W_]*t[\s\W_]*[ớơờở][\s\W_]*i[\s\W_]*s[\s\W_]*[áa][\s\W_]*n[\s\W_]*[gq][\s\W_]*k[\s\W_]*[iíì][\s\W_]*[êeế][\s\W_]*[nñ]",
+        r"b[\s\W_]*[ôoố][\s\W_]*[iíì][\s\W_]*c[\s\W_]*[ảaá][\s\W_]*n[\s\W_]*h[\s\W_]*d[\s\W_]*[ẫăãâầẩ][\s\W_]*n[\s\W_]*t[\s\W_]*[ớơờở][\s\W_]*i[\s\W_]*s[\s\W_]*[áa][\s\W_]*n[\s\W_]*[gq][\s\W_]*k[\s\W_]*[iíì][\s\W_]*[êeế][\s\W_]*[nñ]",
         " ",
         temp_text,
         flags=re.IGNORECASE
@@ -152,6 +160,21 @@ def normalize_text(text, preserve_length=False):
     text = re.sub(r"\s+", " ", text).strip()
 
     return text
+
+
+def find_near_match(text, pattern, threshold=0.8):
+    pattern_len = len(pattern)
+    best = None
+    best_ratio = 0
+    for i in range(len(text) - pattern_len + 1):
+        window = text[i:i + pattern_len + 5]
+        ratio = difflib.SequenceMatcher(None, window.lower(), pattern.lower()).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best = i
+    if best is not None and best_ratio >= threshold:
+        return best
+    return None
 
 
 def remove_signature_tail(pages_text: list) -> list:
@@ -245,6 +268,56 @@ def remove_signature_tail(pages_text: list) -> list:
     return result_pages
 
 
+def remove_references_but_keep_appendix(text_blocks):
+    """
+    Giữ các block cho đến block chứa 'TÀI LIỆU THAM KHẢO';
+    Nếu sau đó xuất hiện block/phần chứa 'PHỤ LỤC',
+    thì giữ toàn bộ các block từ 'PHỤ LỤC' trở đi (kể cả có 'TÀI LIỆU THAM KHẢO' phía sau nữa)!
+    """
+
+    ref_found = False
+    appendix_found = False
+    result_blocks = []
+    appendix_blocks = []
+    # Tạm lưu flag để biết vị trí phụ lục
+    for i, block in enumerate(text_blocks):
+        content_upper = block["content"].upper()
+        if not ref_found:
+            index_ref = content_upper.find("TÀI LIỆU THAM KHẢO")
+            if index_ref != -1:
+                ref_found = True
+                # Lưu phần bắt đầu từ đầu đến trước từ khoá
+                before_ref = block["content"][:index_ref].strip()
+                if before_ref:
+                    result_blocks.append({
+                        "page": block["page"],
+                        "content": before_ref
+                    })
+                continue  # Bỏ qua phần sau của block này và các block sau
+            else:
+                result_blocks.append(block)
+        else:
+            # Sau TÀI LIỆU THAM KHẢO, tìm tiếp phụ lục
+            index_appendix = content_upper.find("PHỤ LỤC")
+            if not appendix_found and index_appendix != -1:
+                appendix_found = True
+                after_appendix = block["content"][index_appendix:].strip()
+                if after_appendix:
+                    appendix_blocks.append({
+                        "page": block["page"],
+                        "content": after_appendix
+                    })
+                # Và những block kế tiếp
+            elif appendix_found:
+                appendix_blocks.append(block)
+            # Còn nếu chưa thấy phụ lục thì bỏ qua hết
+
+    # Kết quả gồm phần trước TLTK và phụ lục nếu có!
+    if appendix_blocks:
+        result_blocks.extend(appendix_blocks)
+    return result_blocks
+
+
 def extract_main_text_from_pdf(pdf_bytes: BytesIO, skip_pages=None):
     if skip_pages is None:
         skip_pages = set()
@@ -293,60 +366,78 @@ def extract_main_text_from_pdf(pdf_bytes: BytesIO, skip_pages=None):
 
     except Exception as e:
         print(f"Fall back OCR do: {e}")
-
         images = convert_from_bytes(raw_bytes, dpi=350)
-
         reader = easyocr.Reader(['vi'], gpu=True)
-
-        stop_index = None
+        text_blocks = []
         appendix_text = None
         appendix_page = None
-        text_blocks = []
+        stop_index = None
 
         for i, img in enumerate(images):
             page_index = i + 1
             if page_index in skip_pages:
                 continue
 
+            original_img = img.copy()
+
             if i == 0:
                 width, height = img.size
                 img = img.crop((0, int(height * 0.20), width, height))
 
-            img = img.resize((int(img.width * 2000 / max(img.size)), int(img.height * 2000 / max(img.size))),
-                             Image.Resampling.LANCZOS
-                             )
+            det_res = model.predict(
+                img,
+                imgsz=1024,
+                conf=0.7,
+                device="cuda:0"
+            )
 
-            img_array = np.array(img)
-            del img
+            layout = det_res[0].boxes.xyxy  # Lấy tọa độ bounding box theo định dạng xyxy
+            layout_conf = det_res[0].boxes.conf  # Độ tin cậy của các box
+            layout_cls = det_res[0].boxes.cls  # lấy label cho từng box
 
-            text = reader.readtext(img_array, detail=0, paragraph=True, batch_size=15)
+            # Sắp xếp block từ trên xuống dưới, trái sang phải
+            sorted_layout = sorted(zip(layout, layout_conf, layout_cls), key=lambda x: (x[0][1], x[0][0]))
+            page_text_parts = []
 
-            del img_array
+            for box, conf, cls in sorted_layout:
+                x1, y1, x2, y2 = map(int, box.tolist())
+                block_type = det_res[0].names[int(cls)]
 
-            text = " ".join(text).strip()
+                if block_type in ["figure", "figure_caption", "abandon", "table_caption", "table_footnote",
+                                  "isolate_formula", "formula_caption"]:
+                    continue
 
-            if i == len(images) - 1 and re.search(r"PHỤ LỤC", text, flags=re.IGNORECASE):
-                appendix_text = text
-                appendix_page = page_index
-                continue
+                padding_x = 10
+                padding_y = 3
 
-            if stop_index is None:
-                match = re.search(r"TÀI LIỆU THAM KHẢO", text, flags=re.IGNORECASE)
-                if match:
-                    text = text[:match.start()].strip()
-                    stop_index = i
-                    print(f"Phát hiện 'TÀI LIỆU THAM KHẢO' tại trang {page_index}, dừng sau trang này.")
+                x1 = max(0, x1 - padding_x)
+                x2 = min(img.width, x2 + padding_x)
+                y1 = max(0, y1 - padding_y)
+                y2 = min(img.height, y2 + padding_y)
 
-            if stop_index is not None and i > stop_index:
-                continue
+                segment = img.crop((x1, y1, x2, y2))
 
-            text_blocks.append({"page": page_index, "content": text})
+                if block_type == "table":
+                    table_text = extract_and_process_table_from_image(segment)
+                    if table_text:
+                        page_text_parts.append(table_text)
 
-        if appendix_text and appendix_page not in [b["page"] for b in text_blocks]:
-            text_blocks.append({"page": appendix_page, "content": appendix_text})
+                elif block_type == "title" or block_type == "plain text" or block_type == "list":
+                    segment = np.array(segment)
+                    text = reader.readtext(segment, detail=0, paragraph=True, batch_size=15)
+                    text = " ".join(text).strip()
+                    if text:
+                        page_text_parts.append(text)
 
-    text_blocks = remove_signature_tail(text_blocks)
-    text_blocks = remove_irrelevant_section(text_blocks)
+            text = " ".join(page_text_parts).strip()
+
+            if text:
+                text_blocks.append({"page": page_index, "content": text})
+
+        text_blocks = remove_references_but_keep_appendix(text_blocks)
+        text_blocks = remove_signature_tail(text_blocks)
+        text_blocks = remove_irrelevant_section(text_blocks)
+
     return text_blocks
 
 
@@ -376,23 +467,24 @@ def process_chunks(chunks, metadata_list, min_chunk_length=None):
 
 def remove_irrelevant_section(pages_text):
     start_patterns = [
-        r"Quyết\s*định\s*nghiệm\s*thu\s*[:：]?\s*số",
-        r"Quyết\s*định\s*công\s*nhận\s*Sáng\s*kiến\s*[:：]?\s*số"
+        r"Quyết\s+định\s+công\s+nhận\s+Sáng\s+kiến\s+số.*?",
+        r"Quyết\s+định\s+nghiệm\s+thu\s+số.*?"
     ]
-    end_pattern = r"Thuyết\s*minh\s*về\s*phạm\s*vi\s*ảnh\s*hưởng"
+    end_pattern = "Thuyết minh về phạm vi ảnh hưởng"
 
-    # Kết hợp nội dung với bảo tồn độ dài để xác định vị trí chính xác
     page_lengths = []
     normalized_contents = []
 
     for p in pages_text:
-        normalized = normalize_text(p["content"], preserve_length=True)
+        # Không cần normalize dấu, chỉ giữ nguyên content gốc!
+        normalized = p["content"]
         normalized_contents.append(normalized)
         page_lengths.append(len(normalized))
 
     combined_text = " ".join(normalized_contents)
 
     start_idx = None
+    # Tìm start bằng regex như cũ
     for pattern in start_patterns:
         match = re.search(pattern, combined_text, flags=re.IGNORECASE)
         if match:
@@ -400,25 +492,21 @@ def remove_irrelevant_section(pages_text):
             break
 
     end_idx = None
-    # Kiểm tra phần kết thúc
+    # Tìm end dùng fuzzy matching nếu tìm thấy start
     if start_idx is not None:
-        end_match = re.search(end_pattern, combined_text[start_idx:], flags=re.IGNORECASE)
-        if end_match:
-            end_idx = start_idx + end_match.end()
+        search_text = combined_text[start_idx:]
+        end_pos = find_near_match(search_text, end_pattern, threshold=0.7)
+        if end_pos is not None:
+            end_idx = start_idx + end_pos + len(end_pattern)  # Cắt cả pattern
 
     if start_idx is not None and end_idx is not None:
-        # Cắt nội dung đã lọc, giữ lại phần trước start_idx và sau end_idx
         cleaned_text = combined_text[:start_idx] + combined_text[end_idx:]
 
-        # Phân trang lại với việc giữ lại số trang
+        # Phân trang lại, giữ số trang
         result_pages = []
         current_pos = 0
-        space_pos = 0
 
         for i, p in enumerate(pages_text):
-            if i > 0:
-                space_pos += 1
-
             if current_pos >= len(cleaned_text):
                 result_pages.append({
                     "page": p["page"],
@@ -428,7 +516,6 @@ def remove_irrelevant_section(pages_text):
 
             page_length = page_lengths[i]
             end_pos = min(current_pos + page_length, len(cleaned_text))
-
             segment = cleaned_text[current_pos:end_pos].strip()
 
             result_pages.append({
@@ -440,4 +527,5 @@ def remove_irrelevant_section(pages_text):
 
         return result_pages
 
+    # Nếu không tìm thấy cả start và end, trả về văn bản gốc
     return pages_text
